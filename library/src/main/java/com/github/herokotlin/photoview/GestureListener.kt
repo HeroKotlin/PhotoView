@@ -27,7 +27,7 @@ internal interface GestureListener {
         return true
     }
 
-    fun onScaleEnd() {
+    fun onScaleEnd(isDraging: Boolean) {
 
     }
 

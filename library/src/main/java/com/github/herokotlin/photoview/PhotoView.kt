@@ -8,6 +8,7 @@ import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.util.AttributeSet
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.animation.DecelerateInterpolator
@@ -66,9 +67,6 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
             return 0f
         }
 
-    // 当前的缩放类型，自带的 scaleType 现在是 Matrix，所以要记一个原本的 scaleType
-    private var mScaleType: ScaleType? = null
-
     // 初始的矩阵
     private val mBaseMatrix = Matrix()
 
@@ -87,17 +85,17 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
     // 放大时的 focus point，方便再次双击缩小回去时，图片不会突然移动
     private var mImageScaleFocusPoint = PointF()
 
-    // 图片的最小缩放
-    private var mImageScaleMin = 1f
-
-    // 图片的最大缩放，这个值取决于图片的尺寸
-    private var mImageScaleMax = 0f
-
     // 当前的位移动画实例
     private var mTranslateAnimator: android.animation.Animator? = null
 
     // 当前的缩放动画实例
     private var mZoomAnimator: android.animation.Animator? = null
+
+    private var mMinScale = 1f
+
+    private var mMaxScale = 1f
+
+    private var mScale = 1f
 
     // 外部注册的回调
     lateinit var callback: PhotoViewCallback
@@ -122,9 +120,7 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
     var flingInterpolator: TimeInterpolator = LinearInterpolator()
 
-    var minScale = 1f
-
-    var maxScale = 3f
+    var scaleType = ScaleType.FILL_WIDTH
 
 
     private val mGestureDetector: GestureDetector by lazy {
@@ -166,7 +162,7 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
             }
 
             override fun onDragEnd(isScaling: Boolean, isFling: Boolean) {
-
+                Log.d("photoview", "onDragEnd ---------- $isScaling $isFling ${mZoomAnimator != null}")
                 if (mZoomAnimator != null) {
                     return
                 }
@@ -183,9 +179,11 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
             override fun onDragStart(): Boolean {
                 if (mZoomAnimator == null && draggableDirection != DIRECTION_NO && mImageWidth > 0) {
+                    Log.d("photoview", "onDragStart1 ++++++++++++")
                     callback.onDragStart()
                     return true
                 }
+                Log.d("photoview", "onDragStart2 ++++++++++++")
                 return false
             }
 
@@ -198,24 +196,24 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
                 var scaleFactor = scale
 
                 // 缩放之后的值
-                val scaleValue = getScale() * scale
+                val scaleValue = mScale * scale
 
                 // 缩放后比最大尺寸还大时
                 // 需要逐渐加大阻尼效果，到达一个阈值后不可再放大
-                if (scaleValue > maxScale && scaleFactor > 1) {
+                if (scaleValue > mMaxScale && scaleFactor > 1) {
 
                     // 获取一个 0-1 之间的数
-                    val ratio = Math.min(1f, (scaleValue - maxScale) / (maxScale * zoomSlopFactor))
+                    val ratio = Math.min(1f, (scaleValue - mMaxScale) / (mMaxScale * zoomSlopFactor))
 
                     scaleFactor -= (scaleFactor - 1) * bounceInterpolator.getInterpolation(ratio)
 
                 }
                 // 缩放后比最小尺寸还小时
                 // 需要逐渐加大阻尼效果，到达一个阈值后不可再缩小
-                else if (scaleValue < minScale && scaleFactor < 1) {
+                else if (scaleValue < mMinScale && scaleFactor < 1) {
 
                     // 获取一个 0-1 之间的数
-                    val ratio = Math.min(1f, (minScale - scaleValue) / (minScale * zoomSlopFactor))
+                    val ratio = Math.min(1f, (mMinScale - scaleValue) / (mMinScale * zoomSlopFactor))
 
                     scaleFactor += (1 - scaleFactor) * bounceInterpolator.getInterpolation(ratio)
 
@@ -233,24 +231,33 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
                 return zoomable && mImageWidth > 0 && mZoomAnimator == null
             }
 
-            override fun onScaleEnd() {
+            override fun onScaleEnd(isDraging: Boolean) {
 
                 if (mZoomAnimator != null) {
                     return
                 }
 
-                val from = getScale()
-                var to = from
-
-                if (from > maxScale) {
-                    to = maxScale
-                }
-                else if (from < minScale) {
-                    to = minScale
+                val from = mScale
+                val to = when {
+                    from > mMaxScale -> {
+                        mMaxScale
+                    }
+                    from < mMinScale -> {
+                        mMinScale
+                    }
+                    else -> {
+                        from
+                    }
                 }
 
                 if (to != from) {
                     startZoomAnimator(from, to, zoomDuration, zoomInterpolator)
+                }
+                else if (!isDraging) {
+                    Log.d("photoView", "@@@@@@@@@@@@@@@@@@")
+                    checkImageBounds { dx, dy ->
+                        startBounceAnimator(dx, dy, bounceInterpolator)
+                    }
                 }
 
             }
@@ -317,15 +324,15 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
                     return
                 }
 
-                val from = getScale()
+                val from = mScale
 
                 // 当与最小缩放值很近时，下次缩放到最大
-                val to = if (Math.abs(maxScale - from) > 0.1) {
+                val to = if (mMaxScale - from > 0.001) {
                     mImageScaleFocusPoint.set(x, y)
-                    maxScale
+                    mMaxScale
                 }
                 else {
-                    minScale
+                    mMinScale
                 }
 
                 startZoomAnimator(from, to, zoomDuration, zoomInterpolator)
@@ -348,20 +355,12 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
     private fun init() {
 
-        if (mScaleType == null) {
-            mScaleType = ScaleType.CENTER_INSIDE
-        }
-
         // 这句非常重要，相当于拦截了 image view 的默认实现
         // 把 scaleType 配置或通过用户交互产生的平移、缩放，内部均通过矩阵来完成
-        super.setScaleType(ScaleType.MATRIX)
+        super.setScaleType(ImageView.ScaleType.MATRIX)
 
         addOnLayoutChangeListener(this)
 
-    }
-
-    override fun setScaleType(scaleType: ScaleType) {
-        mScaleType = scaleType
     }
 
     override fun setImageResource(resId: Int) {
@@ -629,7 +628,9 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
                 refresh()
             }
 
-            callback.onScaleChange(getScale())
+            mScale *= scale
+
+            callback.onScaleChange(mScale / mMinScale)
 
             return true
         }
@@ -688,47 +689,34 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
         val viewWidth = mViewWidth
         val viewHeight = mViewHeight
 
-        var deltaX = 0f
-        var deltaY = 0f
-
-        if (imageWidth <= viewWidth) {
-            when (mScaleType) {
-                ScaleType.FIT_START -> {
-                    deltaX = -imageRect.left
-                }
-                ScaleType.FIT_END -> {
-                    deltaX = viewWidth - imageWidth - imageRect.left
-                }
-                else -> {
-                    deltaX = (viewWidth - imageWidth) / 2 - imageRect.left
-                }
+        val deltaX = when {
+            imageWidth <= viewWidth -> {
+                (viewWidth - imageWidth) / 2 - imageRect.left
+            }
+            imageRect.left > 0 -> {
+                -imageRect.left
+            }
+            imageRect.right < viewWidth -> {
+                viewWidth - imageRect.right
+            }
+            else -> {
+                0f
             }
         }
-        else if (imageRect.left > 0) {
-            deltaX = -imageRect.left
-        }
-        else if (imageRect.right < viewWidth) {
-            deltaX = viewWidth - imageRect.right
-        }
 
-        if (imageHeight <= viewHeight) {
-            when (mScaleType) {
-                ScaleType.FIT_START -> {
-                    deltaY = -imageRect.top
-                }
-                ScaleType.FIT_END -> {
-                    deltaY = viewHeight - imageHeight - imageRect.top
-                }
-                else -> {
-                    deltaY = (viewHeight - imageHeight) / 2 - mRect.top
-                }
+        val deltaY = when {
+            imageHeight <= viewHeight -> {
+                (viewHeight - imageHeight) / 2 - mRect.top
             }
-        }
-        else if (imageRect.top > 0) {
-            deltaY = -imageRect.top
-        }
-        else if (imageRect.bottom < viewHeight) {
-            deltaY = viewHeight - imageRect.bottom
+            imageRect.top > 0 -> {
+                -imageRect.top
+            }
+            imageRect.bottom < viewHeight -> {
+                viewHeight - imageRect.bottom
+            }
+            else -> {
+                0f
+            }
         }
 
         if (deltaX != 0f || deltaY != 0f) {
@@ -754,58 +742,44 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
             val widthScale = mViewWidth / mImageWidth
             val heightScale = mViewHeight / mImageHeight
 
-            val minScale = Math.min(widthScale, heightScale)
-            val maxScale = Math.max(widthScale, heightScale)
-
-            when (mScaleType) {
-                ScaleType.CENTER -> {
-                    mBaseMatrix.postTranslate(
-                        (mViewWidth - mImageWidth) / 2,
-                        (mViewHeight - mImageHeight) / 2
-                    )
+            val scale = when (scaleType) {
+                ScaleType.FILL_WIDTH -> {
+                    widthScale
                 }
-                ScaleType.CENTER_CROP -> {
-                    mBaseMatrix.postScale(maxScale, maxScale)
-                    mBaseMatrix.postTranslate(
-                        (mViewWidth - mImageWidth * maxScale) / 2,
-                        (mViewHeight - mImageHeight * maxScale) / 2
-                    )
-                }
-                ScaleType.CENTER_INSIDE -> {
-                    mBaseMatrix.postScale(minScale, minScale)
-                    mBaseMatrix.postTranslate(
-                        (mViewWidth - mImageWidth * minScale) / 2,
-                        (mViewHeight - mImageHeight * minScale) / 2
-                    )
+                ScaleType.FILL_HEIGHT -> {
+                    heightScale
                 }
                 else -> {
-
-                    val srcRect = RectF(0f, 0f, mImageWidth, mImageHeight)
-                    val dstRect = RectF(0f, 0f, mViewWidth, mViewHeight)
-
-                    when (mScaleType) {
-                        ScaleType.FIT_CENTER -> {
-                            mBaseMatrix.setRectToRect(srcRect, dstRect, Matrix.ScaleToFit.CENTER)
-                        }
-                        ScaleType.FIT_START -> {
-                            mBaseMatrix.setRectToRect(srcRect, dstRect, Matrix.ScaleToFit.START)
-                        }
-                        ScaleType.FIT_END -> {
-                            mBaseMatrix.setRectToRect(srcRect, dstRect, Matrix.ScaleToFit.END)
-                        }
-                        ScaleType.FIT_XY -> {
-                            mBaseMatrix.setRectToRect(srcRect, dstRect, Matrix.ScaleToFit.FILL)
-                        }
-                    }
-
+                    Math.min(widthScale, heightScale)
                 }
             }
 
+            mBaseMatrix.postScale(scale, scale)
+
+            val imageWidth = mImageWidth * scale
+            val imageHeight = mImageHeight * scale
+
+            val deltaX = if (mViewWidth > imageWidth) {
+                (mViewWidth - imageWidth) / 2
+            }
+            else {
+                0f
+            }
+
+            val deltaY = if (mViewHeight > imageHeight) {
+                (mViewHeight - imageHeight) / 2
+            }
+            else {
+                0f
+            }
+
+            mBaseMatrix.postTranslate(deltaX, deltaY)
+
             imageMatrix = mBaseMatrix
 
-            val baseScale = getValue(mBaseMatrix, Matrix.MSCALE_X)
-            mImageScaleMin = minScale / baseScale
-            mImageScaleMax = maxScale / baseScale
+            mMaxScale = 3 * scale
+            mMinScale = scale
+            mScale = scale
 
             callback.onReset()
 
@@ -822,8 +796,10 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
         return mMatrixValues[ whichValue ]
     }
 
-    private fun getScale(): Float {
-        return getValue(mChangeMatrix, Matrix.MSCALE_X)
+    enum class ScaleType {
+        FIT,
+        FILL_WIDTH,
+        FILL_HEIGHT,
     }
 
 }

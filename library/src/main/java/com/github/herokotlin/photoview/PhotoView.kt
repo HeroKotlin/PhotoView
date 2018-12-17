@@ -14,6 +14,8 @@ import android.util.AttributeSet
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.LinearInterpolator
 import android.widget.ImageView
 
 class PhotoView : ImageView, View.OnLayoutChangeListener {
@@ -71,9 +73,6 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
     // 当前的缩放类型，自带的 scaleType 现在是 Matrix，所以要记一个原本的 scaleType
     private var mScaleType: ScaleType? = null
 
-    // 图片的配置
-    private val mConfiguration = PhotoViewConfiguration()
-
     // 初始的矩阵
     private val mBaseMatrix = Matrix()
 
@@ -98,101 +97,40 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
     // 图片的最大缩放，这个值取决于图片的尺寸
     private var mImageScaleMax = 0f
 
-    // 当前的动画实例
-    private var mAnimator: android.animation.Animator? = null
+    // 当前的位移动画实例
+    private var mTranslateAnimator: android.animation.Animator? = null
+
+    // 当前的缩放动画实例
+    private var mZoomAnimator: android.animation.Animator? = null
 
     // 外部注册的回调
     lateinit var callback: PhotoViewCallback
 
-    // 是否可缩放
-    var zoomable = true
-
     // 拖拽方向
     var draggableDirection = DIRECTION_ALL
 
-    // 弹簧效果的方向
+    // 是否可缩放
+    var zoomable = true
+
+    var zoomDuration = 250L
+
+    var zoomInterpolator: TimeInterpolator = DecelerateInterpolator()
+
+    var zoomSlopFactor = 0.4f
+
     var bounceDirection = DIRECTION_ALL
 
-    var zoomDuration: Long
+    var bounceDistance = 0.4f
 
-        get() {
-            return mConfiguration.zoomDuration
-        }
-        set(value) {
-            mConfiguration.zoomDuration = value
-        }
+    var bounceDuration = 250L
 
-    var zoomInterpolator: TimeInterpolator
+    var bounceInterpolator: TimeInterpolator = DecelerateInterpolator()
 
-        get() {
-            return mConfiguration.zoomInterpolator
-        }
-        set(value) {
-            mConfiguration.zoomInterpolator = value
-        }
+    var flingInterpolator: TimeInterpolator = LinearInterpolator()
 
-    var zoomSlopFactor: Float
+    var minScale = 1f
 
-        get() {
-            return mConfiguration.zoomSlopFactor
-        }
-        set(value) {
-            mConfiguration.zoomSlopFactor = value
-        }
-
-    var bounceDistance: Float
-
-        get() {
-            return mConfiguration.bounceDistance
-        }
-        set(value) {
-            mConfiguration.bounceDistance = value
-        }
-
-    var bounceDuration: Long
-
-        get() {
-            return mConfiguration.bounceDuration
-        }
-        set(value) {
-            mConfiguration.bounceDuration = value
-        }
-
-    var bounceInterpolator: TimeInterpolator
-
-        get() {
-            return mConfiguration.bounceInterpolator
-        }
-        set(value) {
-            mConfiguration.bounceInterpolator = value
-        }
-
-    var flingInterpolator: TimeInterpolator
-
-        get() {
-            return mConfiguration.flingInterpolator
-        }
-        set(value) {
-            mConfiguration.flingInterpolator = value
-        }
-
-    var minScale: Float
-
-        get() {
-            return mConfiguration.minScale
-        }
-        set(value) {
-            mConfiguration.minScale = value
-        }
-
-    var maxScale: Float
-
-        get() {
-            return mConfiguration.maxScale
-        }
-        set(value) {
-            mConfiguration.maxScale = value
-        }
+    var maxScale = 3f
 
 
     private val mGestureDetector: GestureDetector by lazy {
@@ -272,7 +210,7 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
                 }
 
-                mAnimator?.cancel()
+                mZoomAnimator?.cancel()
 
                 zoom(scaleFactor, focusPoint.x, focusPoint.y, true)
 
@@ -297,7 +235,7 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
                 else if (from < minScale) {
                     to = minScale
                 }
-Log.d("photoview", "onscaleend $from $to")
+
                 if (to != from) {
                     startZoomAnimator(from, to, bounceDuration, zoomInterpolator)
                 }
@@ -351,7 +289,7 @@ Log.d("photoview", "onscaleend $from $to")
             }
 
             override fun onTap(x: Float, y: Float) {
-                mAnimator?.cancel()
+                mTranslateAnimator?.cancel()
                 callback.onTap(x, y)
             }
 
@@ -427,7 +365,7 @@ Log.d("photoview", "onscaleend $from $to")
 
     private fun startZoomAnimator(from: Float, to: Float, duration: Long, interpolator: TimeInterpolator) {
 
-        mAnimator?.cancel()
+        mZoomAnimator?.cancel()
 
         val animator = ValueAnimator.ofFloat(from, to)
         var lastValue = from
@@ -450,20 +388,20 @@ Log.d("photoview", "onscaleend $from $to")
         animator.addListener(object: AnimatorListenerAdapter() {
             // 动画被取消，onAnimationEnd() 也会被调用
             override fun onAnimationEnd(animation: android.animation.Animator?) {
-                if (animation == mAnimator) {
-                    mAnimator = null
+                if (animation == mZoomAnimator) {
+                    mZoomAnimator = null
                 }
             }
         })
         animator.start()
 
-        mAnimator = animator
+        mZoomAnimator = animator
 
     }
 
     private fun startFlingAnimator(vx: Float, vy: Float, interpolator: TimeInterpolator) {
 
-        mAnimator?.cancel()
+        mTranslateAnimator?.cancel()
 
         val animatorX = ValueAnimator.ofFloat(vx, 0f)
         val animatorY = ValueAnimator.ofFloat(vy, 0f)
@@ -482,20 +420,20 @@ Log.d("photoview", "onscaleend $from $to")
 
         animatorSet.addListener(object: AnimatorListenerAdapter() {
             override fun onAnimationEnd(animation: android.animation.Animator?) {
-                if (animation == mAnimator) {
-                    mAnimator = null
+                if (animation == mTranslateAnimator) {
+                    mTranslateAnimator = null
                     bounceIfNeeded()
                 }
             }
         })
 
-        mAnimator = animatorSet
+        mTranslateAnimator = animatorSet
 
     }
 
     private fun startBounceAnimator(deltaX: Float, deltaY: Float) {
 
-//        mAnimator?.cancel()
+        mTranslateAnimator?.cancel()
 
         val animatorX = ValueAnimator.ofFloat(deltaX, 0f)
         val animatorY = ValueAnimator.ofFloat(deltaY, 0f)
@@ -521,13 +459,13 @@ Log.d("photoview", "onscaleend $from $to")
 
         animatorSet.addListener(object: AnimatorListenerAdapter() {
             override fun onAnimationEnd(animation: android.animation.Animator?) {
-                if (animation == mAnimator) {
-                    mAnimator = null
+                if (animation == mTranslateAnimator) {
+                    mTranslateAnimator = null
                 }
             }
         })
 
-        mAnimator = animatorSet
+        mTranslateAnimator = animatorSet
 
     }
 
@@ -546,16 +484,13 @@ Log.d("photoview", "onscaleend $from $to")
             if (checkBounds && bounceDirection != DIRECTION_NO) {
                 checkImageBounds { dx, dy ->
 
-                    // 按短边比例取值
-                    val distance = bounceDistance * Math.min(mViewWidth, mViewHeight)
-
                     if (dx != 0f) {
-                        val ratioX = Math.min(1f, Math.abs(dx) / distance)
+                        val ratioX = Math.min(1f, Math.abs(dx) / (mViewWidth * bounceDistance))
                         deltaX -= bounceInterpolator.getInterpolation(ratioX) * deltaX
                     }
 
                     if (dy != 0f) {
-                        val ratioY = Math.min(1f, Math.abs(dy) / distance)
+                        val ratioY = Math.min(1f, Math.abs(dy) / (mViewHeight * bounceDistance))
                         deltaY -= bounceInterpolator.getInterpolation(ratioY) * deltaY
                     }
 

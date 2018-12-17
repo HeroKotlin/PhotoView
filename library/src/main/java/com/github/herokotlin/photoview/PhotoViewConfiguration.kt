@@ -11,7 +11,7 @@ class PhotoViewConfiguration {
     var minScale = 1f
     var maxScale = 3f
 
-    var zoomDuration = 500
+    var zoomDuration = 700
     var zoomSlopFactor = 0.6f
     var zoomEasing: Easing = outExpo
 

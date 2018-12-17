@@ -118,9 +118,9 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
     var bounceDistance = 0.4f
 
-    var bounceDuration = 200L
+    var bounceDuration = 100L
 
-    var bounceInterpolator: TimeInterpolator = LinearInterpolator()
+    var bounceInterpolator: TimeInterpolator = DecelerateInterpolator()
 
     var flingInterpolator: TimeInterpolator = LinearInterpolator()
 
@@ -176,7 +176,9 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
                 callback.onDragEnd()
 
                 if (!isScaling && !isFling) {
-                    bounceIfNeeded()
+                    checkImageBounds { dx, dy ->
+                        startBounceAnimator(dx, dy, bounceInterpolator)
+                    }
                 }
 
             }
@@ -190,6 +192,10 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
             }
 
             override fun onScale(scale: Float, focusPoint: PointF, lastFocusPoint: PointF) {
+
+                if (mZoomAnimator != null) {
+                    return
+                }
 
                 var scaleFactor = scale
 
@@ -217,8 +223,6 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
                 }
 
-                mZoomAnimator?.cancel()
-
                 zoom(scaleFactor, focusPoint.x, focusPoint.y, true)
 
                 translate(focusPoint.x - lastFocusPoint.x, focusPoint.y - lastFocusPoint.y, true, 0f, true)
@@ -228,10 +232,14 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
             }
 
             override fun onScaleStart(): Boolean {
-                return zoomable && mImageWidth > 0
+                return zoomable && mImageWidth > 0 && mZoomAnimator == null
             }
 
             override fun onScaleEnd() {
+
+                if (mZoomAnimator != null) {
+                    return
+                }
 
                 val from = getScale()
                 var to = from
@@ -244,14 +252,14 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
                 }
 
                 if (to != from) {
-                    startZoomAnimator(from, to, bounceDuration, zoomInterpolator)
+                    startZoomAnimator(from, to, zoomDuration, zoomInterpolator)
                 }
 
             }
 
             override fun onFling(velocityX: Float, velocityY: Float): Boolean {
                 val imageRect = getImageRect()
-                if (imageRect != null) {
+                if (imageRect != null && mZoomAnimator == null) {
 
                     var vx = 0f
                     var vy = 0f
@@ -292,16 +300,22 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
             }
 
             override fun onLongPress(x: Float, y: Float) {
+                if (mZoomAnimator != null) {
+                    return
+                }
                 callback.onLongPress(x, y)
             }
 
             override fun onTap(x: Float, y: Float) {
+                if (mZoomAnimator != null) {
+                    return
+                }
                 callback.onTap(x, y)
             }
 
             override fun onDoubleTap(x: Float, y: Float) {
 
-                if (!zoomable) {
+                if (!zoomable && mZoomAnimator != null) {
                     return
                 }
 
@@ -448,7 +462,9 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
             override fun onAnimationEnd(animation: android.animation.Animator?) {
                 if (animation == mTranslateAnimator) {
                     mTranslateAnimator = null
-                    bounceIfNeeded()
+                    checkImageBounds { dx, dy ->
+                        startBounceAnimator(dx, dy, interpolator)
+                    }
                 }
             }
         })
@@ -457,7 +473,7 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
     }
 
-    private fun startBounceAnimator(deltaX: Float, deltaY: Float) {
+    private fun startBounceAnimator(deltaX: Float, deltaY: Float, interpolator: TimeInterpolator) {
 
         mTranslateAnimator?.cancel()
 
@@ -466,7 +482,7 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
         val animatorSet = AnimatorSet()
         animatorSet.playTogether(animators)
-        animatorSet.interpolator = bounceInterpolator
+        animatorSet.interpolator = interpolator
         animatorSet.start()
 
         animatorSet.addListener(object: AnimatorListenerAdapter() {
@@ -728,22 +744,6 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
         if (imageRect != null) {
             checkImageBounds(imageRect, action)
         }
-    }
-
-    private fun bounceIfNeeded() {
-
-        var deltaX = 0f
-        var deltaY = 0f
-
-        checkImageBounds { dx, dy ->
-            deltaX = dx
-            deltaY = dy
-        }
-
-        if (deltaX != 0f || deltaY != 0f) {
-            startBounceAnimator(deltaX, deltaY)
-        }
-
     }
 
     private fun updateBaseMatrix() {

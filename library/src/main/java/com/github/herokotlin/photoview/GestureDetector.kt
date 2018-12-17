@@ -10,7 +10,7 @@ import android.view.ViewConfiguration
 /**
  * 封装所有手势逻辑
  */
-class GestureDetector(private val context: Context, private val configuration: PhotoViewConfiguration, private val listener: GestureListener) {
+class GestureDetector(private val context: Context, private val listener: GestureListener) {
 
     companion object {
         private const val INVALID_POINTER_ID = -1
@@ -185,7 +185,7 @@ class GestureDetector(private val context: Context, private val configuration: P
                     if (mIsDragging) {
 
                         mVelocityTracker?.addMovement(event)
-                        mVelocityTracker?.computeCurrentVelocity(configuration.frameRateUnit.toInt())
+                        mVelocityTracker?.computeCurrentVelocity(1000 / 60)
 
                         val vx = mVelocityTracker!!.xVelocity
                         val vy = mVelocityTracker!!.yVelocity

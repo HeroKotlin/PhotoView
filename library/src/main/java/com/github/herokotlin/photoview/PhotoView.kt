@@ -118,8 +118,6 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
     var bounceDistance = 0.4f
 
-    var bounceDuration = 100L
-
     var bounceInterpolator: TimeInterpolator = DecelerateInterpolator()
 
     var flingInterpolator: TimeInterpolator = LinearInterpolator()

@@ -2,7 +2,6 @@ package com.github.herokotlin.photoview
 
 import android.content.Context
 import android.graphics.PointF
-import android.util.Log
 import android.view.GestureDetector as NativeGestureDetector
 import android.view.MotionEvent
 import android.view.VelocityTracker
@@ -234,13 +233,12 @@ internal class GestureDetector(private val context: Context, private val listene
             mPrimaryPointerId = INVALID_POINTER_ID
             if (mIsDragging) {
                 mIsDragging = false
-                listener.onDragEnd(false, isFling)
+                listener.onDragEnd(isFling)
             }
         }
     }
 
     private fun setSecondaryPointer(event: MotionEvent, pointerIndex: Int) {
-        Log.d("photoview", "setSecondaryPointer $pointerIndex")
         if (pointerIndex != INVALID_POINTER_INDEX) {
             mSecondaryPointerId = event.getPointerId(pointerIndex)
             mSecondaryLastTouchPoint.set(
@@ -249,10 +247,6 @@ internal class GestureDetector(private val context: Context, private val listene
             )
             mScaleFocusPoint = getMidPoint(mPrimaryLastTouchPoint, mSecondaryLastTouchPoint)
             mScaleDistance = getDistance(mPrimaryLastTouchPoint, mSecondaryLastTouchPoint)
-            if (mIsDragging) {
-                mIsDragging = false
-                listener.onDragEnd(true, false)
-            }
         }
         else if (mSecondaryPointerId != INVALID_POINTER_ID) {
             mSecondaryPointerId = INVALID_POINTER_ID

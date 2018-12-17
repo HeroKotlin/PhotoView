@@ -15,7 +15,7 @@ internal interface GestureListener {
         return true
     }
 
-    fun onDragEnd(isScaling: Boolean, isFling: Boolean) {
+    fun onDragEnd(isFling: Boolean) {
 
     }
 
@@ -27,7 +27,7 @@ internal interface GestureListener {
         return true
     }
 
-    fun onScaleEnd(isDraging: Boolean) {
+    fun onScaleEnd(isDragging: Boolean) {
 
     }
 

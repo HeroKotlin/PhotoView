@@ -27,7 +27,7 @@ interface PhotoViewCallback {
 
     }
 
-    fun onScale(scale: Float) {
+    fun onScaleChange(scale: Float) {
 
     }
 

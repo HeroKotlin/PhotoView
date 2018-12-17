@@ -1,9 +1,6 @@
 package com.github.herokotlin.photoview
 
-import android.animation.AnimatorListenerAdapter
-import android.animation.AnimatorSet
-import android.animation.TimeInterpolator
-import android.animation.ValueAnimator
+import android.animation.*
 import android.content.Context
 import android.graphics.Matrix
 import android.graphics.PointF
@@ -11,7 +8,6 @@ import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.util.AttributeSet
-import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.animation.DecelerateInterpolator
@@ -122,9 +118,9 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
     var bounceDistance = 0.4f
 
-    var bounceDuration = 250L
+    var bounceDuration = 200L
 
-    var bounceInterpolator: TimeInterpolator = DecelerateInterpolator()
+    var bounceInterpolator: TimeInterpolator = LinearInterpolator()
 
     var flingInterpolator: TimeInterpolator = LinearInterpolator()
 
@@ -137,6 +133,10 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
         GestureDetector(context, object: GestureListener {
 
             override fun onDrag(x: Float, y: Float): Boolean {
+
+                if (mZoomAnimator != null) {
+                    return false
+                }
 
                 var dx = x
                 var dy = y
@@ -168,14 +168,21 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
             }
 
             override fun onDragEnd(isScaling: Boolean, isFling: Boolean) {
+
+                if (mZoomAnimator != null) {
+                    return
+                }
+
                 callback.onDragEnd()
+
                 if (!isScaling && !isFling) {
                     bounceIfNeeded()
                 }
+
             }
 
             override fun onDragStart(): Boolean {
-                if (draggableDirection != DIRECTION_NO && mImageWidth > 0) {
+                if (mZoomAnimator == null && draggableDirection != DIRECTION_NO && mImageWidth > 0) {
                     callback.onDragStart()
                     return true
                 }
@@ -289,7 +296,6 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
             }
 
             override fun onTap(x: Float, y: Float) {
-                mTranslateAnimator?.cancel()
                 callback.onTap(x, y)
             }
 
@@ -370,22 +376,41 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
         val animator = ValueAnimator.ofFloat(from, to)
         var lastValue = from
 
-        animator.duration = duration
-        animator.interpolator = interpolator
         animator.addUpdateListener {
-
             val value = it.animatedValue as Float
-
             zoom(value / lastValue, mImageScaleFocusPoint.x, mImageScaleFocusPoint.y)
-
-            checkImageBounds { dx, dy ->
-                translate(dx, dy)
-            }
-
             lastValue = value
-
         }
-        animator.addListener(object: AnimatorListenerAdapter() {
+
+
+
+        val animators = mutableListOf<Animator>()
+        animators.add(animator)
+
+
+
+        // 计算缩放后的位移
+        val tempMatrix = Matrix(mChangeMatrix)
+
+        val scale = to / from
+        mChangeMatrix.postScale(scale, scale, mImageScaleFocusPoint.x, mImageScaleFocusPoint.y)
+        updateDrawMatrix()
+
+        checkImageBounds { dx, dy ->
+            addBounceAnimator(dx, dy, animators)
+        }
+
+        mChangeMatrix.set(tempMatrix)
+        updateDrawMatrix()
+
+
+        // 综合位移 + 缩放一起动画吧
+        val animatorSet = AnimatorSet()
+        animatorSet.duration = duration
+        animatorSet.interpolator = interpolator
+        animatorSet.playTogether(animators)
+
+        animatorSet.addListener(object: AnimatorListenerAdapter() {
             // 动画被取消，onAnimationEnd() 也会被调用
             override fun onAnimationEnd(animation: android.animation.Animator?) {
                 if (animation == mZoomAnimator) {
@@ -393,9 +418,10 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
                 }
             }
         })
-        animator.start()
 
-        mZoomAnimator = animator
+        animatorSet.start()
+
+        mZoomAnimator = animatorSet
 
     }
 
@@ -435,9 +461,30 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
         mTranslateAnimator?.cancel()
 
+        val animators = mutableListOf<Animator>()
+        addBounceAnimator(deltaX, deltaY, animators)
+
+        val animatorSet = AnimatorSet()
+        animatorSet.playTogether(animators)
+        animatorSet.interpolator = bounceInterpolator
+        animatorSet.start()
+
+        animatorSet.addListener(object: AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: android.animation.Animator?) {
+                if (animation == mTranslateAnimator) {
+                    mTranslateAnimator = null
+                }
+            }
+        })
+
+        mTranslateAnimator = animatorSet
+
+    }
+
+    private fun addBounceAnimator(deltaX: Float, deltaY: Float, animators: MutableList<Animator>) {
+
         val animatorX = ValueAnimator.ofFloat(deltaX, 0f)
         val animatorY = ValueAnimator.ofFloat(deltaY, 0f)
-        val animatorSet = AnimatorSet()
 
         var lastX = deltaX
         var lastY = deltaY
@@ -453,19 +500,8 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
             lastY = value
         }
 
-        animatorSet.interpolator = bounceInterpolator
-        animatorSet.playTogether(animatorX, animatorY)
-        animatorSet.start()
-
-        animatorSet.addListener(object: AnimatorListenerAdapter() {
-            override fun onAnimationEnd(animation: android.animation.Animator?) {
-                if (animation == mTranslateAnimator) {
-                    mTranslateAnimator = null
-                }
-            }
-        })
-
-        mTranslateAnimator = animatorSet
+        animators.add(animatorX)
+        animators.add(animatorY)
 
     }
 
@@ -498,6 +534,9 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
             }
 
             if (deltaX != 0f || deltaY != 0f) {
+
+                mImageScaleFocusPoint.x += deltaX
+                mImageScaleFocusPoint.y += deltaY
 
                 mChangeMatrix.postTranslate(deltaX, deltaY)
                 updateDrawMatrix()
@@ -576,7 +615,7 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
                 refresh()
             }
 
-            callback.onScale(getScale())
+            callback.onScaleChange(getScale())
 
             return true
         }

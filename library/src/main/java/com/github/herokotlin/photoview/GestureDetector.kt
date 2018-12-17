@@ -10,7 +10,7 @@ import android.view.ViewConfiguration
 /**
  * 封装所有手势逻辑
  */
-class GestureDetector(private val context: Context, private val listener: GestureListener) {
+internal class GestureDetector(private val context: Context, private val listener: GestureListener) {
 
     companion object {
         private const val INVALID_POINTER_ID = -1
@@ -256,7 +256,6 @@ class GestureDetector(private val context: Context, private val listener: Gestur
             mSecondaryPointerId = INVALID_POINTER_ID
             if (mIsScaling) {
                 mIsScaling = false
-                mIsDragging = mPrimaryPointerId != INVALID_POINTER_ID
                 listener.onScaleEnd()
             }
         }

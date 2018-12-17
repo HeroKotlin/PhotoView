@@ -5,7 +5,7 @@ import android.graphics.PointF
 /**
  * 支持的所有手势
  */
-interface GestureListener {
+internal interface GestureListener {
 
     fun onDrag(x: Float, y: Float): Boolean {
         return true

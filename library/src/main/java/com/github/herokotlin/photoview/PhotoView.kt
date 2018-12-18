@@ -120,7 +120,7 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
     var bounceInterpolator: TimeInterpolator = DecelerateInterpolator()
 
-    var flingInterpolator: TimeInterpolator = DecelerateInterpolator()
+    var flingInterpolator: TimeInterpolator = LinearInterpolator()
 
     var scaleType = ScaleType.FILL_WIDTH
 
@@ -434,10 +434,10 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
         val animatorSet = AnimatorSet()
 
         animatorX.addUpdateListener {
-            translate(it.animatedValue as Float, 0f, true, 10f)
+            translate(it.animatedValue as Float, 0f, true)
         }
         animatorY.addUpdateListener {
-            translate(0f, it.animatedValue as Float, true, 10f)
+            translate(0f, it.animatedValue as Float, true)
         }
 
         animatorSet.interpolator = interpolator
@@ -756,7 +756,7 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
             imageMatrix = mBaseMatrix
 
-            mMaxScale = 3 * scale
+            mMaxScale = if (3 * scale < 1) 1f else (3 * scale)
             mMinScale = scale
             mScale = scale
 

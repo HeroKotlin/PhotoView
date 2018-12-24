@@ -116,25 +116,30 @@ class ThumbnailView: ImageView {
             return
         }
 
-        val saved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            canvas.saveLayer(null, null)
-        }
-        else {
-            canvas.saveLayer(null, null, Canvas.ALL_SAVE_FLAG)
-        }
-
         val left = (width - cacheBitmap.width.toFloat()) / 2
         val top = (height - cacheBitmap.height.toFloat()) / 2
 
-        canvas.drawRoundRect(clipRect, borderRadiusPixel, borderRadiusPixel, paint)
+        if (borderRadiusPixel > 0) {
 
-        paint.xfermode = xfermode
+            val saved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                canvas.saveLayer(null, null)
+            } else {
+                canvas.saveLayer(null, null, Canvas.ALL_SAVE_FLAG)
+            }
 
-        canvas.drawBitmap(cacheBitmap, left, top, paint)
+            canvas.drawRoundRect(clipRect, borderRadiusPixel, borderRadiusPixel, paint)
 
-        paint.xfermode = null
+            paint.xfermode = xfermode
 
-        canvas.restoreToCount(saved)
+            canvas.drawBitmap(cacheBitmap, left, top, paint)
+
+            paint.xfermode = null
+
+            canvas.restoreToCount(saved)
+        }
+        else {
+            canvas.drawBitmap(cacheBitmap, left, top, paint)
+        }
 
     }
 

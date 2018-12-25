@@ -24,7 +24,9 @@ class ThumbnailView: ImageView {
 
     private var borderRadiusPixel = 0f
 
-    private var bitmap: Bitmap? = null
+    private var drawableBitmap: Bitmap? = null
+
+    private var drawableCanvas: Canvas? = null
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -86,22 +88,20 @@ class ThumbnailView: ImageView {
                 val bitmapWidth = (intrinsicWidth * scale).toInt()
                 val bitmapHeight = (intrinsicHeight * scale).toInt()
 
-                val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
+                drawableBitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
 
-                val canvas = Canvas(bitmap)
+                drawableCanvas = Canvas(drawableBitmap)
 
                 drawable.setBounds(0, 0, bitmapWidth, bitmapHeight)
-                drawable.draw(canvas)
 
-                this.bitmap = bitmap
             }
             else {
-                this.bitmap = null
+                this.drawableBitmap = null
             }
 
         }
         else {
-            this.bitmap = null
+            this.drawableBitmap = null
         }
 
         invalidate()
@@ -110,9 +110,11 @@ class ThumbnailView: ImageView {
 
     override fun onDraw(canvas: Canvas) {
 
-        val cacheBitmap = bitmap
+        val cacheBitmap = drawableBitmap
+        val cacheCanvas = drawableCanvas
 
-        if (cacheBitmap == null) {
+        if (cacheBitmap == null || cacheCanvas == null) {
+            super.onDraw(canvas)
             return
         }
 
@@ -131,11 +133,14 @@ class ThumbnailView: ImageView {
 
             paint.xfermode = xfermode
 
+            drawable.draw(cacheCanvas)
+
             canvas.drawBitmap(cacheBitmap, left, top, paint)
 
             paint.xfermode = null
 
             canvas.restoreToCount(saved)
+
         }
         else {
             canvas.drawBitmap(cacheBitmap, left, top, paint)

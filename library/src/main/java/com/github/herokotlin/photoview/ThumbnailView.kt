@@ -28,6 +28,10 @@ class ThumbnailView: ImageView {
 
     private var drawableCanvas: Canvas? = null
 
+    private var drawableWidth = 0
+
+    private var drawableHeight = 0
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private val xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
@@ -74,34 +78,28 @@ class ThumbnailView: ImageView {
 
     private fun updateBitmap() {
 
-        val viewWidth = width.toFloat()
-        val viewHeight = height.toFloat()
+        drawableBitmap = null
 
         if (drawable != null) {
+
+            val viewWidth = width.toFloat()
+            val viewHeight = height.toFloat()
 
             val intrinsicWidth = drawable.intrinsicWidth.toFloat()
             val intrinsicHeight = drawable.intrinsicHeight.toFloat()
 
-            if (width > 0 && height > 0 && intrinsicWidth > 0 && intrinsicHeight > 0) {
+            if (viewWidth > 0 && viewHeight > 0 && intrinsicWidth > 0 && intrinsicHeight > 0) {
+
                 val scale = Math.max(viewWidth / intrinsicWidth, viewHeight / intrinsicHeight)
 
-                val bitmapWidth = (intrinsicWidth * scale).toInt()
-                val bitmapHeight = (intrinsicHeight * scale).toInt()
+                drawableWidth = (intrinsicWidth * scale).toInt()
+                drawableHeight = (intrinsicHeight * scale).toInt()
 
-                drawableBitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
-
+                drawableBitmap = Bitmap.createBitmap(drawableWidth, drawableHeight, Bitmap.Config.ARGB_8888)
                 drawableCanvas = Canvas(drawableBitmap)
 
-                drawable.setBounds(0, 0, bitmapWidth, bitmapHeight)
-
-            }
-            else {
-                this.drawableBitmap = null
             }
 
-        }
-        else {
-            this.drawableBitmap = null
         }
 
         invalidate()
@@ -118,8 +116,8 @@ class ThumbnailView: ImageView {
             return
         }
 
-        val left = (width - cacheBitmap.width.toFloat()) / 2
-        val top = (height - cacheBitmap.height.toFloat()) / 2
+        val left = (width - drawableWidth).toFloat() / 2
+        val top = (height - drawableHeight).toFloat() / 2
 
         if (borderRadiusPixel > 0) {
 
@@ -133,8 +131,9 @@ class ThumbnailView: ImageView {
 
             paint.xfermode = xfermode
 
+            // gif 会不停的调 onDraw，因此只有在这里不停的 drawable.draw(cacheCanvas) 才会有动画
+            drawable.setBounds(0, 0, drawableWidth, drawableHeight)
             drawable.draw(cacheCanvas)
-
             canvas.drawBitmap(cacheBitmap, left, top, paint)
 
             paint.xfermode = null
@@ -143,6 +142,8 @@ class ThumbnailView: ImageView {
 
         }
         else {
+            drawable.setBounds(0, 0, drawableWidth, drawableHeight)
+            drawable.draw(cacheCanvas)
             canvas.drawBitmap(cacheBitmap, left, top, paint)
         }
 

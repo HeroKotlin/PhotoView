@@ -2,7 +2,6 @@ package com.github.herokotlin.photoview
 
 import android.content.Context
 import android.graphics.*
-import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
@@ -12,16 +11,14 @@ import android.widget.ImageView
 
 class ThumbnailView: ImageView {
 
-    var defaultDrawable = ColorDrawable(Color.parseColor("#EBEBEB"))
+    var bgColor = 0
 
         set(value) {
             if (field == value) {
                 return
             }
             field = value
-            if (drawable == null) {
-                invalidate()
-            }
+            invalidate()
         }
 
     var borderRadius = 0
@@ -96,32 +93,23 @@ class ThumbnailView: ImageView {
         val viewWidth = width.toFloat()
         val viewHeight = height.toFloat()
 
-        if (viewWidth > 0 && viewHeight > 0) {
-            if (drawable != null) {
+        if (viewWidth > 0 && viewHeight > 0 && drawable != null) {
 
-                val intrinsicWidth = drawable.intrinsicWidth.toFloat()
-                val intrinsicHeight = drawable.intrinsicHeight.toFloat()
+            val intrinsicWidth = drawable.intrinsicWidth.toFloat()
+            val intrinsicHeight = drawable.intrinsicHeight.toFloat()
 
-                if (intrinsicWidth > 0 && intrinsicHeight > 0) {
+            if (intrinsicWidth > 0 && intrinsicHeight > 0) {
 
-                    val scale = Math.max(viewWidth / intrinsicWidth, viewHeight / intrinsicHeight)
+                val scale = Math.max(viewWidth / intrinsicWidth, viewHeight / intrinsicHeight)
 
-                    drawableWidth = (intrinsicWidth * scale).toInt()
-                    drawableHeight = (intrinsicHeight * scale).toInt()
-
-                    drawableBitmap = Bitmap.createBitmap(drawableWidth, drawableHeight, Bitmap.Config.ARGB_8888)
-                    drawableCanvas = Canvas(drawableBitmap)
-
-                }
-
-            }
-            else {
-                drawableWidth = viewWidth.toInt()
-                drawableHeight = viewHeight.toInt()
+                drawableWidth = (intrinsicWidth * scale).toInt()
+                drawableHeight = (intrinsicHeight * scale).toInt()
 
                 drawableBitmap = Bitmap.createBitmap(drawableWidth, drawableHeight, Bitmap.Config.ARGB_8888)
                 drawableCanvas = Canvas(drawableBitmap)
+
             }
+
         }
 
         invalidate()
@@ -138,7 +126,18 @@ class ThumbnailView: ImageView {
             return
         }
 
-        val cacheDrawable = if (drawable != null) drawable else defaultDrawable
+        paint.style = Paint.Style.FILL
+
+        if (bgColor != 0) {
+            paint.color = bgColor
+            if (borderRadiusPixel > 0) {
+                canvas.drawRoundRect(clipRect, borderRadiusPixel, borderRadiusPixel, paint)
+            }
+            else {
+                canvas.drawRect(clipRect, paint)
+            }
+            paint.color = Color.BLACK
+        }
 
         val left = (width - drawableWidth).toFloat() / 2
         val top = (height - drawableHeight).toFloat() / 2
@@ -156,8 +155,8 @@ class ThumbnailView: ImageView {
             paint.xfermode = xfermode
 
             // gif 会不停的调 onDraw，因此只有在这里不停的 drawable.draw(cacheCanvas) 才会有动画
-            cacheDrawable.setBounds(0, 0, drawableWidth, drawableHeight)
-            cacheDrawable.draw(cacheCanvas)
+            drawable.setBounds(0, 0, drawableWidth, drawableHeight)
+            drawable.draw(cacheCanvas)
             canvas.drawBitmap(cacheBitmap, left, top, paint)
 
             paint.xfermode = null
@@ -166,8 +165,8 @@ class ThumbnailView: ImageView {
 
         }
         else {
-            cacheDrawable.setBounds(0, 0, drawableWidth, drawableHeight)
-            cacheDrawable.draw(cacheCanvas)
+            drawable.setBounds(0, 0, drawableWidth, drawableHeight)
+            drawable.draw(cacheCanvas)
             canvas.drawBitmap(cacheBitmap, left, top, paint)
         }
 

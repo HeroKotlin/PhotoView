@@ -10,7 +10,7 @@ import android.util.TypedValue
 import android.widget.ImageView
 import java.lang.ref.WeakReference
 
-class ThumbnailView: ImageView {
+open class ThumbnailView: ImageView {
 
     var bgColor = 0
 

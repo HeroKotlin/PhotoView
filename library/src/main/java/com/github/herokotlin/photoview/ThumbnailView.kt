@@ -8,6 +8,7 @@ import android.os.Build
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.widget.ImageView
+import java.lang.ref.WeakReference
 
 class ThumbnailView: ImageView {
 
@@ -34,7 +35,7 @@ class ThumbnailView: ImageView {
 
     private var borderRadiusPixel = 0f
 
-    private var drawableBitmap: Bitmap? = null
+    private var drawableBitmap: WeakReference<Bitmap>? = null
 
     private var drawableCanvas: Canvas? = null
 
@@ -105,26 +106,17 @@ class ThumbnailView: ImageView {
                 drawableWidth = (intrinsicWidth * scale).toInt()
                 drawableHeight = (intrinsicHeight * scale).toInt()
 
-                drawableBitmap = Bitmap.createBitmap(drawableWidth, drawableHeight, Bitmap.Config.ARGB_8888)
-                drawableCanvas = Canvas(drawableBitmap)
-
             }
 
         }
+
+        drawableBitmap?.clear()
 
         invalidate()
 
     }
 
     override fun onDraw(canvas: Canvas) {
-
-        val cacheBitmap = drawableBitmap
-        val cacheCanvas = drawableCanvas
-
-        if (cacheBitmap == null || cacheCanvas == null) {
-            super.onDraw(canvas)
-            return
-        }
 
         paint.style = Paint.Style.FILL
 
@@ -137,6 +129,14 @@ class ThumbnailView: ImageView {
                 canvas.drawRect(clipRect, paint)
             }
             paint.color = Color.BLACK
+        }
+
+        // 用弱引用确保不会 OOM
+        var cacheBitmap = drawableBitmap?.get()
+        if (cacheBitmap == null) {
+            cacheBitmap = Bitmap.createBitmap(drawableWidth, drawableHeight, Bitmap.Config.ARGB_8888)
+            drawableCanvas = Canvas(cacheBitmap)
+            drawableBitmap = WeakReference(cacheBitmap)
         }
 
         val left = (width - drawableWidth).toFloat() / 2
@@ -156,7 +156,7 @@ class ThumbnailView: ImageView {
 
             // gif 会不停的调 onDraw，因此只有在这里不停的 drawable.draw(cacheCanvas) 才会有动画
             drawable.setBounds(0, 0, drawableWidth, drawableHeight)
-            drawable.draw(cacheCanvas)
+            drawable.draw(drawableCanvas)
             canvas.drawBitmap(cacheBitmap, left, top, paint)
 
             paint.xfermode = null
@@ -166,7 +166,7 @@ class ThumbnailView: ImageView {
         }
         else {
             drawable.setBounds(0, 0, drawableWidth, drawableHeight)
-            drawable.draw(cacheCanvas)
+            drawable.draw(drawableCanvas)
             canvas.drawBitmap(cacheBitmap, left, top, paint)
         }
 

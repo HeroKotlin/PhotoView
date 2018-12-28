@@ -20,6 +20,7 @@ open class ThumbnailView: ImageView {
             }
             field = value
             if (borderRadius > 0) {
+                setBackgroundColor(0)
                 invalidate()
             }
             else {
@@ -34,6 +35,14 @@ open class ThumbnailView: ImageView {
                 return
             }
             field = value
+            if (bgColor != 0) {
+                if (value > 0) {
+                    setBackgroundColor(0)
+                }
+                else {
+                    setBackgroundColor(bgColor)
+                }
+            }
             borderRadiusPixel = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), resources.displayMetrics)
             updateBitmap()
         }

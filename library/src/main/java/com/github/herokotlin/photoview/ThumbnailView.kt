@@ -19,7 +19,12 @@ open class ThumbnailView: ImageView {
                 return
             }
             field = value
-            invalidate()
+            if (borderRadius > 0) {
+                invalidate()
+            }
+            else {
+                setBackgroundColor(bgColor)
+            }
         }
 
     var borderRadius = 0
@@ -37,7 +42,7 @@ open class ThumbnailView: ImageView {
 
     private var drawableBitmap: WeakReference<Bitmap>? = null
 
-    private var drawableCanvas: Canvas? = null
+    private var drawableCanvas: WeakReference<Canvas>? = null
 
     private var drawableWidth = 0
 
@@ -111,12 +116,18 @@ open class ThumbnailView: ImageView {
         }
 
         drawableBitmap?.clear()
+        drawableCanvas?.clear()
 
         invalidate()
 
     }
 
     override fun onDraw(canvas: Canvas) {
+
+        if (borderRadiusPixel == 0f) {
+            super.onDraw(canvas)
+            return
+        }
 
         paint.style = Paint.Style.FILL
 
@@ -135,40 +146,36 @@ open class ThumbnailView: ImageView {
         var cacheBitmap = drawableBitmap?.get()
         if (cacheBitmap == null) {
             cacheBitmap = Bitmap.createBitmap(drawableWidth, drawableHeight, Bitmap.Config.ARGB_8888)
-            drawableCanvas = Canvas(cacheBitmap)
             drawableBitmap = WeakReference(cacheBitmap)
         }
 
+        var cacheCanvas = drawableCanvas?.get()
+        if (cacheCanvas == null) {
+            cacheCanvas = Canvas(cacheBitmap)
+            drawableCanvas = WeakReference(cacheCanvas)
+        }
+
+        val saved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            canvas.saveLayer(null, null)
+        } else {
+            canvas.saveLayer(null, null, Canvas.ALL_SAVE_FLAG)
+        }
+
+        canvas.drawRoundRect(clipRect, borderRadiusPixel, borderRadiusPixel, paint)
+
+        paint.xfermode = xfermode
+
+        // gif 会不停的调 onDraw，因此只有在这里不停的 drawable.draw(cacheCanvas) 才会有动画
+        drawable.setBounds(0, 0, drawableWidth, drawableHeight)
+        drawable.draw(cacheCanvas)
+
         val left = (width - drawableWidth).toFloat() / 2
         val top = (height - drawableHeight).toFloat() / 2
+        canvas.drawBitmap(cacheBitmap, left, top, paint)
 
-        if (borderRadiusPixel > 0) {
+        paint.xfermode = null
 
-            val saved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                canvas.saveLayer(null, null)
-            } else {
-                canvas.saveLayer(null, null, Canvas.ALL_SAVE_FLAG)
-            }
-
-            canvas.drawRoundRect(clipRect, borderRadiusPixel, borderRadiusPixel, paint)
-
-            paint.xfermode = xfermode
-
-            // gif 会不停的调 onDraw，因此只有在这里不停的 drawable.draw(cacheCanvas) 才会有动画
-            drawable.setBounds(0, 0, drawableWidth, drawableHeight)
-            drawable.draw(drawableCanvas)
-            canvas.drawBitmap(cacheBitmap, left, top, paint)
-
-            paint.xfermode = null
-
-            canvas.restoreToCount(saved)
-
-        }
-        else {
-            drawable.setBounds(0, 0, drawableWidth, drawableHeight)
-            drawable.draw(drawableCanvas)
-            canvas.drawBitmap(cacheBitmap, left, top, paint)
-        }
+        canvas.restoreToCount(saved)
 
     }
 

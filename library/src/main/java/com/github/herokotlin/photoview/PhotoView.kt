@@ -9,13 +9,11 @@ import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.util.AttributeSet
 import android.view.MotionEvent
-import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.LinearInterpolator
-import android.view.animation.OvershootInterpolator
 import android.widget.ImageView
 
-class PhotoView : ImageView, View.OnLayoutChangeListener {
+class PhotoView : ImageView {
 
     companion object {
 
@@ -37,35 +35,21 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
     }
 
-    private var mViewWidth: Float = 0f
+    private var mViewWidth = 0f
 
         get() {
             return (width - paddingLeft - paddingRight).toFloat()
         }
 
-    private var mViewHeight: Float = 0f
+    private var mViewHeight = 0f
 
         get() {
             return (height - paddingTop - paddingBottom).toFloat()
         }
 
-    private var mImageWidth: Float = 0f
+    private var mImageWidth = 0f
 
-        get() {
-            if (drawable != null) {
-                return drawable.intrinsicWidth.toFloat()
-            }
-            return 0f
-        }
-
-    private var mImageHeight: Float = 0f
-
-        get() {
-            if (drawable != null) {
-                return drawable.intrinsicHeight.toFloat()
-            }
-            return 0f
-        }
+    private var mImageHeight = 0f
 
     // 初始的矩阵
     private val mBaseMatrix = Matrix()
@@ -91,11 +75,11 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
     // 当前的缩放动画实例
     private var mZoomAnimator: android.animation.Animator? = null
 
-    private var mMinScale = 1f
+    private var minScale = 1f
 
-    private var mMaxScale = 1f
+    private var maxScale = 1f
 
-    private var mScale = 1f
+    private var scale = 1f
 
     // 外部注册的回调
     lateinit var callback: PhotoViewCallback
@@ -178,29 +162,29 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
                 return false
             }
 
-            override fun onScale(scale: Float, focusPoint: PointF, lastFocusPoint: PointF) {
+            override fun onScale(factor: Float, focusPoint: PointF, lastFocusPoint: PointF) {
 
-                var scaleFactor = scale
+                var scaleFactor = factor
 
                 // 缩放之后的值
-                val scaleValue = mScale * scale
+                val scaleValue = scale * factor
 
                 // 缩放后比最大尺寸还大时
                 // 需要逐渐加大阻尼效果，到达一个阈值后不可再放大
-                if (scaleValue > mMaxScale && scaleFactor > 1) {
+                if (scaleValue > maxScale && scaleFactor > 1) {
 
                     // 获取一个 0-1 之间的数
-                    val ratio = Math.min(1f, (scaleValue - mMaxScale) / (mMaxScale * zoomSlopFactor))
+                    val ratio = Math.min(1f, (scaleValue - maxScale) / (maxScale * zoomSlopFactor))
 
                     scaleFactor -= (scaleFactor - 1) * bounceInterpolator.getInterpolation(ratio)
 
                 }
                 // 缩放后比最小尺寸还小时
                 // 需要逐渐加大阻尼效果，到达一个阈值后不可再缩小
-                else if (scaleValue < mMinScale && scaleFactor < 1) {
+                else if (scaleValue < minScale && scaleFactor < 1) {
 
                     // 获取一个 0-1 之间的数
-                    val ratio = Math.min(1f, (mMinScale - scaleValue) / (mMinScale * zoomSlopFactor))
+                    val ratio = Math.min(1f, (minScale - scaleValue) / (minScale * zoomSlopFactor))
 
                     scaleFactor += (1 - scaleFactor) * bounceInterpolator.getInterpolation(ratio)
 
@@ -288,15 +272,15 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
                     return
                 }
 
-                val from = mScale
+                val from = scale
 
                 // 当与最小缩放值很近时，下次缩放到最大
-                val to = if (mMaxScale - from > 0.001) {
+                val to = if (maxScale - from > 0.001) {
                     mImageScaleFocusPoint.set(x, y)
-                    mMaxScale
+                    maxScale
                 }
                 else {
-                    mMinScale
+                    minScale
                 }
 
                 startZoomAnimator(from, to, zoomDuration, zoomInterpolator)
@@ -323,36 +307,42 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
         // 把 scaleType 配置或通过用户交互产生的平移、缩放，内部均通过矩阵来完成
         super.setScaleType(ImageView.ScaleType.MATRIX)
 
-        addOnLayoutChangeListener(this)
-
     }
 
     override fun setImageResource(resId: Int) {
         super.setImageResource(resId)
-        updateBaseMatrix()
+        updateImage()
     }
 
     override fun setImageDrawable(drawable: Drawable?) {
         super.setImageDrawable(drawable)
-        updateBaseMatrix()
+        updateImage()
     }
 
     override fun setImageURI(uri: Uri?) {
         super.setImageURI(uri)
-        updateBaseMatrix()
+        updateImage()
     }
 
+    private fun updateImage() {
+
+        mImageWidth = if (drawable != null) drawable.intrinsicWidth.toFloat() else 0f
+        mImageHeight = if (drawable != null) drawable.intrinsicHeight.toFloat() else 0f
+
+        updateBaseMatrix()
+
+    }
 
 
     private fun updateImageScaleAndPosition(bounce: Boolean) {
 
-        val from = mScale
+        val from = scale
         val to = when {
-            from > mMaxScale -> {
-                mMaxScale
+            from > maxScale -> {
+                maxScale
             }
-            from < mMinScale -> {
-                mMinScale
+            from < minScale -> {
+                minScale
             }
             else -> {
                 from
@@ -590,15 +580,15 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
     }
 
-    fun zoom(scale: Float, focusX: Float, focusY: Float, silent: Boolean = false): Boolean {
+    fun zoom(scaleFactor: Float, focusX: Float, focusY: Float, silent: Boolean = false): Boolean {
 
-        if (scale != 1f) {
+        if (scaleFactor != 1f) {
 
             // 记录中心点，方便双击缩小时，不会位移
             mImageScaleFocusPoint.set(focusX, focusY)
 
             // 缩放
-            mChangeMatrix.postScale(scale, scale, focusX, focusY)
+            mChangeMatrix.postScale(scaleFactor, scaleFactor, focusX, focusY)
 
             // 更新最后起作用的矩阵
             updateDrawMatrix()
@@ -607,9 +597,9 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
                 refresh()
             }
 
-            mScale *= scale
+            scale *= scaleFactor
 
-            callback.onScaleChange(mScale / mMinScale)
+            callback.onScaleChange(scale / minScale)
 
             return true
         }
@@ -618,16 +608,8 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
     }
 
-    /**
-     * 隐藏 action bar, status bar 之类的会触发布局变化
-     */
-    override fun onLayoutChange(view: View?,
-                                left: Int, top: Int, right: Int, bottom: Int,
-                                oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int
-    ) {
-        if (left != oldLeft || top != oldTop || right != oldRight || bottom != oldBottom) {
-            updateBaseMatrix()
-        }
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        updateBaseMatrix()
     }
 
     /**
@@ -721,22 +703,25 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
             val widthScale = mViewWidth / mImageWidth
             val heightScale = mViewHeight / mImageHeight
 
-            val scale = when (scaleType) {
+            val zoomScale = when (scaleType) {
                 ScaleType.FILL_WIDTH -> {
                     widthScale
                 }
                 ScaleType.FILL_HEIGHT -> {
                     heightScale
                 }
+                ScaleType.FILL -> {
+                    Math.max(widthScale, heightScale)
+                }
                 else -> {
                     Math.min(widthScale, heightScale)
                 }
             }
 
-            mBaseMatrix.postScale(scale, scale)
+            mBaseMatrix.postScale(zoomScale, zoomScale)
 
-            val imageWidth = mImageWidth * scale
-            val imageHeight = mImageHeight * scale
+            val imageWidth = mImageWidth * zoomScale
+            val imageHeight = mImageHeight * zoomScale
 
             val deltaX = if (mViewWidth > imageWidth) {
                 (mViewWidth - imageWidth) / 2
@@ -756,9 +741,9 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
             imageMatrix = mBaseMatrix
 
-            mMaxScale = if (3 * scale < 1) 1f else (3 * scale)
-            mMinScale = scale
-            mScale = scale
+            maxScale = if (3 * zoomScale < 1) 1f else (3 * zoomScale)
+            minScale = zoomScale
+            scale = zoomScale
 
             callback.onReset()
 
@@ -777,6 +762,7 @@ class PhotoView : ImageView, View.OnLayoutChangeListener {
 
     enum class ScaleType {
         FIT,
+        FILL,
         FILL_WIDTH,
         FILL_HEIGHT,
     }

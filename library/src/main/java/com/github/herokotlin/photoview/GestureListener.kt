@@ -19,7 +19,7 @@ internal interface GestureListener {
 
     }
 
-    fun onScale(factor: Float, focusPoint: PointF, lastFocusPoint: PointF) {
+    fun onScale(scaleFactor: Float, focusPoint: PointF, lastFocusPoint: PointF) {
 
     }
 

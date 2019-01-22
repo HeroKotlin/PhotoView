@@ -2,9 +2,7 @@ package com.github.herokotlin.photoview
 
 import android.animation.*
 import android.content.Context
-import android.graphics.Matrix
-import android.graphics.PointF
-import android.graphics.RectF
+import android.graphics.*
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.util.AttributeSet
@@ -35,16 +33,16 @@ class PhotoView : ImageView {
 
     }
 
-    private var mViewWidth = 0f
+    private var mContentWidth = 0f
 
         get() {
-            return (width - paddingLeft - paddingRight).toFloat()
+            return width - contentInset.left - contentInset.right
         }
 
-    private var mViewHeight = 0f
+    private var mContentHeight = 0f
 
         get() {
-            return (height - paddingTop - paddingBottom).toFloat()
+            return height - contentInset.top - contentInset.bottom
         }
 
     private var mImageWidth = 0f
@@ -62,28 +60,16 @@ class PhotoView : ImageView {
 
     // 方便读取矩阵的值，创建一个公用的数组
     private val mMatrixValues = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
-
-    // 辅助计算坐标映射，避免频繁创建 RectF 对象
-    private val mRect = RectF()
-
-    // 放大时的 focus point，方便再次双击缩小回去时，图片不会突然移动
-    private var mImageScaleFocusPoint = PointF()
-
+    
     // 当前的位移动画实例
     private var mTranslateAnimator: android.animation.Animator? = null
 
     // 当前的缩放动画实例
     private var mZoomAnimator: android.animation.Animator? = null
 
-    private var minScale = 1f
-
-    private var maxScale = 1f
-
-    private var scale = 1f
-
-    // 外部注册的回调
-    lateinit var callback: PhotoViewCallback
-
+    // 放大时的 focus point，方便再次双击缩小回去时，图片不会突然移动
+    private var mFocusPoint = PointF()
+    
     // 拖拽方向
     var draggableDirection = DIRECTION_ALL
 
@@ -106,8 +92,90 @@ class PhotoView : ImageView {
 
     var flingInterpolator: TimeInterpolator = LinearInterpolator()
 
+    var contentInset = ContentInset.zero
+
+        set(value) {
+
+            val oldScale = scale
+            val oldOrigin = imageOrigin
+
+            // 开始更新
+            field = value
+
+            updateBaseMatrix(true)
+
+            // 还原为原来的尺寸
+            val newScale = scale
+            zoom(oldScale / newScale, true)
+
+            // 还原成原来的位置
+            val newOrigin = imageOrigin
+            translate(oldOrigin.x - newOrigin.x, oldOrigin.y - newOrigin.y, false, true)
+
+            // 发射
+            imageMatrix = mDrawMatrix
+
+        }
+
     var scaleType = ScaleType.FILL_WIDTH
 
+    // 以下三个外部只读
+    var minScale = 1f
+
+    var maxScale = 1f
+
+    var scale: Float
+
+        get() {
+            return getValue(mDrawMatrix, Matrix.MSCALE_X)
+        }
+
+        set(value) {
+
+        }
+
+    var imageOrigin: PointF
+
+        get() {
+            val x = getValue(mDrawMatrix, Matrix.MTRANS_X)
+            val y = getValue(mDrawMatrix, Matrix.MTRANS_Y)
+            return PointF(x, y)
+        }
+
+        set(value) {
+
+            val oldOrigin = imageOrigin
+
+            val dx = value.x - oldOrigin.x
+            val dy = value.y - oldOrigin.y
+
+            mChangeMatrix.setTranslate(dx, dy)
+
+            updateDrawMatrix()
+            imageMatrix = mDrawMatrix
+
+        }
+
+    var imageSize: Size
+
+        get() {
+            return Size(mImageWidth * scale, mImageHeight * scale)
+        }
+
+        set(value) {
+            // 只读
+        }
+
+    var onReset: (() -> Unit)? = null
+
+    var onTap: (() -> Unit)? = null
+    var onLongPress: (() -> Unit)? = null
+
+    var onDragStart: (() -> Unit)? = null
+    var onDragEnd: (() -> Unit)? = null
+
+    var onScaleChange: (() -> Unit)? = null
+    var onOriginChange: (() -> Unit)? = null
 
     private val mGestureDetector: GestureDetector by lazy {
         GestureDetector(context, object: GestureListener {
@@ -145,7 +213,7 @@ class PhotoView : ImageView {
 
             override fun onDragEnd(isFling: Boolean) {
 
-                callback.onDragEnd()
+                onDragEnd?.invoke()
 
                 if (!isFling) {
                     updateImageScaleAndPosition(true)
@@ -156,45 +224,47 @@ class PhotoView : ImageView {
             override fun onDragStart(): Boolean {
                 if (draggableDirection != DIRECTION_NO && mImageWidth > 0) {
                     mTranslateAnimator?.cancel()
-                    callback.onDragStart()
+                    onDragStart?.invoke()
                     return true
                 }
                 return false
             }
 
-            override fun onScale(factor: Float, focusPoint: PointF, lastFocusPoint: PointF) {
+            override fun onScale(scaleFactor: Float, focusPoint: PointF, lastFocusPoint: PointF) {
 
-                var scaleFactor = factor
+                var zoomFactor = scaleFactor
 
                 // 缩放之后的值
-                val scaleValue = scale * factor
+                val scaleValue = scale * scaleFactor
 
                 // 缩放后比最大尺寸还大时
                 // 需要逐渐加大阻尼效果，到达一个阈值后不可再放大
-                if (scaleValue > maxScale && scaleFactor > 1) {
+                if (scaleValue > maxScale && zoomFactor > 1) {
 
                     // 获取一个 0-1 之间的数
                     val ratio = Math.min(1f, (scaleValue - maxScale) / (maxScale * zoomSlopFactor))
 
-                    scaleFactor -= (scaleFactor - 1) * bounceInterpolator.getInterpolation(ratio)
+                    zoomFactor -= (zoomFactor - 1) * bounceInterpolator.getInterpolation(ratio)
 
                 }
                 // 缩放后比最小尺寸还小时
                 // 需要逐渐加大阻尼效果，到达一个阈值后不可再缩小
-                else if (scaleValue < minScale && scaleFactor < 1) {
+                else if (scaleValue < minScale && zoomFactor < 1) {
 
                     // 获取一个 0-1 之间的数
                     val ratio = Math.min(1f, (minScale - scaleValue) / (minScale * zoomSlopFactor))
 
-                    scaleFactor += (1 - scaleFactor) * bounceInterpolator.getInterpolation(ratio)
+                    zoomFactor += (1 - zoomFactor) * bounceInterpolator.getInterpolation(ratio)
 
                 }
 
-                zoom(scaleFactor, focusPoint.x, focusPoint.y, true)
+                setFocusPoint(focusPoint.x, focusPoint.y)
 
-                translate(focusPoint.x - lastFocusPoint.x, focusPoint.y - lastFocusPoint.y, true, 0f, true)
+                zoom(zoomFactor, true)
 
-                refresh()
+                translate(focusPoint.x - lastFocusPoint.x, focusPoint.y - lastFocusPoint.y, true, true)
+
+                imageMatrix = mDrawMatrix
 
             }
 
@@ -211,40 +281,42 @@ class PhotoView : ImageView {
             }
 
             override fun onFling(velocityX: Float, velocityY: Float): Boolean {
-                val imageRect = getImageRect()
-                if (imageRect != null && mZoomAnimator == null) {
+                if (mZoomAnimator == null) {
+
+                    val origin = imageOrigin
+                    val size = imageSize
 
                     var vx = 0f
                     var vy = 0f
 
                     if (velocityX > 0) {
                         // 往右滑
-                        if (imageRect.left < 0) {
+                        if (origin.x < 0) {
                             vx = velocityX
                         }
                     }
                     else if (velocityX < 0) {
                         // 往左滑
-                        if (mViewWidth - imageRect.right < 0) {
+                        if (mContentWidth - (origin.x + size.width) < 0) {
                             vx = velocityX
                         }
                     }
 
                     if (velocityY > 0) {
                         // 往下滑
-                        if (imageRect.top < 0) {
+                        if (origin.y < 0) {
                             vy = velocityY
                         }
                     }
                     else if (velocityY < 0) {
                         // 往上滑
-                        if (mViewHeight - imageRect.bottom < 0) {
+                        if (mContentHeight - (origin.y + size.height) < 0) {
                             vy = velocityY
                         }
                     }
 
                     if (vx != 0f || vy != 0f) {
-                        startFlingAnimator(vx, vy, flingInterpolator)
+                        startFlingAnimation(vx, vy, flingInterpolator)
                         return true
                     }
 
@@ -256,14 +328,14 @@ class PhotoView : ImageView {
                 if (mZoomAnimator != null) {
                     return
                 }
-                callback.onLongPress(x, y)
+                onLongPress?.invoke()
             }
 
             override fun onTap(x: Float, y: Float) {
                 if (mZoomAnimator != null) {
                     return
                 }
-                callback.onTap(x, y)
+                onTap?.invoke()
             }
 
             override fun onDoubleTap(x: Float, y: Float) {
@@ -274,16 +346,17 @@ class PhotoView : ImageView {
 
                 val from = scale
 
-                // 当与最小缩放值很近时，下次缩放到最大
-                val to = if (maxScale - from > 0.001) {
-                    mImageScaleFocusPoint.set(x, y)
+                // 距离谁比较远就去谁
+                val to = if (maxScale - scale > scale - minScale) {
                     maxScale
                 }
                 else {
                     minScale
                 }
 
-                startZoomAnimator(from, to, zoomDuration, zoomInterpolator)
+                setFocusPoint(x, y)
+
+                startZoomAnimation(from, to, zoomDuration, zoomInterpolator)
 
             }
         })
@@ -329,10 +402,9 @@ class PhotoView : ImageView {
         mImageWidth = if (drawable != null) drawable.intrinsicWidth.toFloat() else 0f
         mImageHeight = if (drawable != null) drawable.intrinsicHeight.toFloat() else 0f
 
-        updateBaseMatrix()
+        updateBaseMatrix(false)
 
     }
-
 
     private fun updateImageScaleAndPosition(bounce: Boolean) {
 
@@ -350,17 +422,41 @@ class PhotoView : ImageView {
         }
 
         if (to != from) {
-            startZoomAnimator(from, to, bounceDuration, bounceInterpolator)
+            startZoomAnimation(from, to, bounceDuration, bounceInterpolator)
         }
         else if (bounce) {
             checkImageBounds { dx, dy ->
-                startBounceAnimator(dx, dy, bounceInterpolator)
+                startTranslateAnimation(dx, dy, bounceInterpolator)
             }
         }
 
     }
 
-    private fun startZoomAnimator(from: Float, to: Float, duration: Long, interpolator: TimeInterpolator) {
+    fun temp(update: (Matrix, Matrix) -> Unit, read: () -> Unit) {
+
+        val baseMatrix = Matrix(mBaseMatrix)
+        val changeMatrix = Matrix(mChangeMatrix)
+
+        update(mBaseMatrix, mChangeMatrix)
+
+        updateDrawMatrix()
+
+        read()
+
+        mBaseMatrix.set(baseMatrix)
+        mChangeMatrix.set(changeMatrix)
+
+        updateDrawMatrix()
+
+    }
+
+    fun startZoomAnimation(from: Float, to: Float) {
+
+        startZoomAnimation(from, to, zoomDuration, zoomInterpolator)
+
+    }
+
+    private fun startZoomAnimation(from: Float, to: Float, duration: Long, interpolator: TimeInterpolator) {
 
         mZoomAnimator?.cancel()
 
@@ -372,7 +468,7 @@ class PhotoView : ImageView {
 
         animator.addUpdateListener {
             val value = it.animatedValue as Float
-            zoom(value / lastValue, mImageScaleFocusPoint.x, mImageScaleFocusPoint.y)
+            zoom(value / lastValue)
             lastValue = value
         }
 
@@ -385,29 +481,23 @@ class PhotoView : ImageView {
             }
         })
 
-
-        // 计算缩放后的位移
-        val tempMatrix = Matrix(mChangeMatrix)
-
-        val scale = to / from
-        mChangeMatrix.postScale(scale, scale, mImageScaleFocusPoint.x, mImageScaleFocusPoint.y)
-        updateDrawMatrix()
-
         var deltaX = 0f
         var deltaY = 0f
 
-        checkImageBounds { dx, dy ->
-            deltaX = dx
-            deltaY = dy
+        // 计算缩放后的位移
+        temp({ _, changeMatrix ->
+            val scale = to / from
+            changeMatrix.postScale(scale, scale, mFocusPoint.x, mFocusPoint.y)
+        }) {
+            checkImageBounds { dx, dy ->
+                deltaX = dx
+                deltaY = dy
+            }
         }
-
-        mChangeMatrix.set(tempMatrix)
-        updateDrawMatrix()
 
         if (deltaX != 0f || deltaY != 0f) {
-            startBounceAnimator(deltaX, deltaY, interpolator)
+            startTranslateAnimation(deltaX, deltaY, interpolator)
         }
-
 
         animator.start()
 
@@ -415,7 +505,7 @@ class PhotoView : ImageView {
 
     }
 
-    private fun startFlingAnimator(vx: Float, vy: Float, interpolator: TimeInterpolator) {
+    private fun startFlingAnimation(vx: Float, vy: Float, interpolator: TimeInterpolator) {
 
         mTranslateAnimator?.cancel()
 
@@ -439,7 +529,7 @@ class PhotoView : ImageView {
                 if (animation == mTranslateAnimator) {
                     mTranslateAnimator = null
                     checkImageBounds { dx, dy ->
-                        startBounceAnimator(dx, dy, interpolator)
+                        startTranslateAnimation(dx, dy, interpolator)
                     }
                 }
             }
@@ -449,7 +539,7 @@ class PhotoView : ImageView {
 
     }
 
-    private fun startBounceAnimator(deltaX: Float, deltaY: Float, interpolator: TimeInterpolator) {
+    fun startTranslateAnimation(deltaX: Float, deltaY: Float, interpolator: TimeInterpolator) {
 
         mTranslateAnimator?.cancel()
 
@@ -487,28 +577,27 @@ class PhotoView : ImageView {
 
     }
 
-
     /**
      * 平移，如果超出允许平移的边界或没移动，返回 false
      */
-    fun translate(x: Float, y: Float, checkBounds: Boolean = false, limit: Float = 0f, silent: Boolean = false): Boolean {
+    fun translate(dx: Float, dy: Float, checkBounds: Boolean = false, silent: Boolean = false): Boolean {
 
-        var deltaX = x
-        var deltaY = y
+        var deltaX = dx
+        var deltaY = dy
 
         if (deltaX != 0f || deltaY != 0f) {
 
             // 拖出边界要加阻力，离 dragBounceDistance 距离越近阻力越大
             if (checkBounds && bounceDirection != DIRECTION_NO) {
-                checkImageBounds { dx, dy ->
+                checkImageBounds { offsetX, offsetY ->
 
-                    if (dx != 0f) {
-                        val ratioX = Math.min(1f, Math.abs(dx) / (mViewWidth * bounceDistance))
+                    if (offsetX != 0f) {
+                        val ratioX = Math.min(1f, Math.abs(offsetX) / (mContentWidth * bounceDistance))
                         deltaX -= bounceInterpolator.getInterpolation(ratioX) * deltaX
                     }
 
-                    if (dy != 0f) {
-                        val ratioY = Math.min(1f, Math.abs(dy) / (mViewHeight * bounceDistance))
+                    if (offsetY != 0f) {
+                        val ratioY = Math.min(1f, Math.abs(offsetY) / (mContentHeight * bounceDistance))
                         deltaY -= bounceInterpolator.getInterpolation(ratioY) * deltaY
                     }
 
@@ -517,17 +606,17 @@ class PhotoView : ImageView {
 
             if (deltaX != 0f || deltaY != 0f) {
 
-                mImageScaleFocusPoint.x += deltaX
-                mImageScaleFocusPoint.y += deltaY
+                mFocusPoint.x += deltaX
+                mFocusPoint.y += deltaY
 
                 mChangeMatrix.postTranslate(deltaX, deltaY)
                 updateDrawMatrix()
 
                 if (bounceDirection != DIRECTION_ALL) {
-                    checkImageBounds { dx, dy ->
+                    checkImageBounds { x, y ->
 
-                        var offsetX = dx
-                        var offsetY = dy
+                        var offsetX = x
+                        var offsetY = y
 
                         if (offsetX > 0) {
                             if (bounceDirection and DIRECTION_RIGHT != 0) {
@@ -565,51 +654,41 @@ class PhotoView : ImageView {
                 }
 
                 if (!silent) {
-                    refresh()
+                    imageMatrix = mDrawMatrix
                 }
 
-                callback.onDrag(
-                    getValue(mChangeMatrix, Matrix.MTRANS_X),
-                    getValue(mChangeMatrix, Matrix.MTRANS_Y)
-                )
+                onOriginChange?.invoke()
 
             }
         }
 
-        return Math.abs(deltaX) > limit || Math.abs(deltaY) > limit
+        return Math.abs(deltaX) > 0 || Math.abs(deltaY) > 0
 
     }
 
-    fun zoom(scaleFactor: Float, focusX: Float, focusY: Float, silent: Boolean = false): Boolean {
+    fun zoom(factor: Float, silent: Boolean = false) {
 
-        if (scaleFactor != 1f) {
-
-            // 记录中心点，方便双击缩小时，不会位移
-            mImageScaleFocusPoint.set(focusX, focusY)
-
-            // 缩放
-            mChangeMatrix.postScale(scaleFactor, scaleFactor, focusX, focusY)
-
-            // 更新最后起作用的矩阵
-            updateDrawMatrix()
-
-            if (!silent) {
-                refresh()
-            }
-
-            scale *= scaleFactor
-
-            callback.onScaleChange(scale / minScale)
-
-            return true
+        if (factor == 1f) {
+            return
         }
 
-        return false
+        // 缩放
+        mChangeMatrix.postScale(factor, factor, mFocusPoint.x, mFocusPoint.y)
+
+        // 更新最后起作用的矩阵
+        updateDrawMatrix()
+
+        if (!silent) {
+            imageMatrix = mDrawMatrix
+        }
+
+        onScaleChange?.invoke()
+        onOriginChange?.invoke()
 
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        updateBaseMatrix()
+        updateBaseMatrix(false)
     }
 
     /**
@@ -620,45 +699,34 @@ class PhotoView : ImageView {
     }
 
     /**
-     * 获取图片的真实尺寸
-     */
-    fun getImageRect(): RectF? {
-        if (mImageWidth > 0f && mImageHeight > 0f) {
-            mRect.set(0f, 0f, mImageWidth, mImageHeight)
-            mDrawMatrix.mapRect(mRect)
-            return mRect
-        }
-        return null
-    }
-
-    /**
-     * 根据当前的绘制矩阵刷新视图
-     */
-    fun refresh() {
-        imageMatrix = mDrawMatrix
-        invalidate()
-    }
-
-    /**
      * 检测当前图片的实际位置和尺寸是否越界
      */
-    private fun checkImageBounds(imageRect: RectF, action: (dx: Float, dy: Float) -> Unit) {
+    private fun checkImageBounds(action: (dx: Float, dy: Float) -> Unit) {
 
-        val imageWidth = imageRect.width()
-        val imageHeight = imageRect.height()
+        val origin = imageOrigin
+        val size = imageSize
 
-        val viewWidth = mViewWidth
-        val viewHeight = mViewHeight
+        val viewWidth = width
+        val viewHeight = height
+
+        val contentWidth = mContentWidth
+        val contentHeight = mContentHeight
+
+        val left = contentInset.left
+        val top = contentInset.top
+
+        val right = viewWidth - contentInset.right
+        val bottom = viewHeight - contentInset.bottom
 
         val deltaX = when {
-            imageWidth <= viewWidth -> {
-                (viewWidth - imageWidth) / 2 - imageRect.left
+            size.width <= contentWidth -> {
+                left + (contentWidth - size.width) / 2 - origin.x
             }
-            imageRect.left > 0 -> {
-                -imageRect.left
+            origin.x > left -> {
+                left - origin.x
             }
-            imageRect.right < viewWidth -> {
-                viewWidth - imageRect.right
+            origin.x + size.width < right -> {
+                right - (origin.x + size.width)
             }
             else -> {
                 0f
@@ -666,14 +734,14 @@ class PhotoView : ImageView {
         }
 
         val deltaY = when {
-            imageHeight <= viewHeight -> {
-                (viewHeight - imageHeight) / 2 - mRect.top
+            size.height <= contentHeight -> {
+                top + (contentHeight - size.height) / 2 - origin.y
             }
-            imageRect.top > 0 -> {
-                -imageRect.top
+            origin.y > top -> {
+                top - origin.y
             }
-            imageRect.bottom < viewHeight -> {
-                viewHeight - imageRect.bottom
+            origin.y + size.height < bottom -> {
+                bottom - (origin.y + size.height)
             }
             else -> {
                 0f
@@ -686,66 +754,129 @@ class PhotoView : ImageView {
 
     }
 
-    private fun checkImageBounds(action: (dx: Float, dy: Float) -> Unit) {
-        val imageRect = getImageRect()
-        if (imageRect != null) {
-            checkImageBounds(imageRect, action)
+    fun resetMatrix(baseMatrix: Matrix, changeMatrix: Matrix) {
+
+        baseMatrix.reset()
+        changeMatrix.reset()
+
+        val viewWidth = width
+        val viewHeight = height
+
+        val contentWidth = mContentWidth
+        val contentHeight = mContentHeight
+
+        val widthScale = contentWidth / mImageWidth
+        val heightScale = contentHeight / mImageHeight
+
+        val zoomScale = when (scaleType) {
+            ScaleType.FILL_WIDTH -> {
+                widthScale
+            }
+            ScaleType.FILL_HEIGHT -> {
+                heightScale
+            }
+            ScaleType.FILL -> {
+                Math.max(widthScale, heightScale)
+            }
+            else -> {
+                Math.min(widthScale, heightScale)
+            }
         }
+
+        baseMatrix.postScale(zoomScale, zoomScale)
+
+        val imageWidth = mImageWidth * zoomScale
+        val imageHeight = mImageHeight * zoomScale
+
+        val deltaX = if (viewWidth > imageWidth) {
+            (viewWidth - imageWidth) / 2
+        }
+        else {
+            0f
+        }
+
+        val deltaY = if (viewHeight > imageHeight) {
+            (viewHeight - imageHeight) / 2
+        }
+        else {
+            0f
+        }
+
+        baseMatrix.postTranslate(deltaX, deltaY)
+
     }
 
-    private fun updateBaseMatrix() {
+    fun updateLimitScale() {
+        maxScale = if (3 * scale < 1) 1f else (3 * scale)
+        minScale = scale
+    }
+
+    fun setFocusPoint(x: Float, y: Float) {
+
+        // 经过测试，图片四角的 focusPoint 如下：
+        val minX = contentInset.left
+        val minY = contentInset.top
+        val maxX = width - contentInset.right
+        val maxY = height - contentInset.bottom
+
+        // 当用户在 photo view 上点击时
+        // 坐标落在 (0, 0) 到 (width, height) 范围内
+        // 此时要把相对 photo view 的坐标转换成相对图片的坐标
+
+        val origin = imageOrigin
+        val size = imageSize
+
+        val scaleX = (x - origin.x) / size.width
+        val scaleY = (y - origin.y) / size.height
+
+        // 最后的换算
+        var focusX = Math.min(Math.max(scaleX * maxX, minX), maxX)
+        var focusY = Math.min(Math.max(scaleY * maxY, minY), maxY)
+
+        // 如果距离四角很近，可优化体验
+        val threshold = 80f
+
+        if (focusX - minX < threshold) {
+            // 左上
+            if (focusY - minY < threshold) {
+                focusX = minX
+                focusY = minY
+            }
+            // 左下
+            else if (maxY - focusY < threshold) {
+                focusX = minX
+                focusY = maxY
+            }
+        }
+        else if (maxX - focusX < threshold) {
+            // 右上
+            if (focusY - minY < threshold) {
+                focusX = maxX
+                focusY = minY
+            }
+            // 右下
+            else if (maxY - focusY < threshold) {
+                focusX = maxX
+                focusY = maxY
+            }
+        }
+
+        mFocusPoint.set(focusX, focusY)
+
+    }
+
+    private fun updateBaseMatrix(silent: Boolean) {
 
         if (mImageWidth > 0 && mImageHeight > 0) {
 
-            mBaseMatrix.reset()
-            mChangeMatrix.reset()
+            resetMatrix(mBaseMatrix, mChangeMatrix)
+            updateDrawMatrix()
+            updateLimitScale()
 
-            val widthScale = mViewWidth / mImageWidth
-            val heightScale = mViewHeight / mImageHeight
-
-            val zoomScale = when (scaleType) {
-                ScaleType.FILL_WIDTH -> {
-                    widthScale
-                }
-                ScaleType.FILL_HEIGHT -> {
-                    heightScale
-                }
-                ScaleType.FILL -> {
-                    Math.max(widthScale, heightScale)
-                }
-                else -> {
-                    Math.min(widthScale, heightScale)
-                }
+            if (!silent) {
+                imageMatrix = mDrawMatrix
+                onReset?.invoke()
             }
-
-            mBaseMatrix.postScale(zoomScale, zoomScale)
-
-            val imageWidth = mImageWidth * zoomScale
-            val imageHeight = mImageHeight * zoomScale
-
-            val deltaX = if (mViewWidth > imageWidth) {
-                (mViewWidth - imageWidth) / 2
-            }
-            else {
-                0f
-            }
-
-            val deltaY = if (mViewHeight > imageHeight) {
-                (mViewHeight - imageHeight) / 2
-            }
-            else {
-                0f
-            }
-
-            mBaseMatrix.postTranslate(deltaX, deltaY)
-
-            imageMatrix = mBaseMatrix
-
-            maxScale = if (3 * zoomScale < 1) 1f else (3 * zoomScale)
-            minScale = zoomScale
-            scale = zoomScale
-
-            callback.onReset()
 
         }
     }
@@ -755,9 +886,26 @@ class PhotoView : ImageView {
         mDrawMatrix.postConcat(mChangeMatrix)
     }
 
+    // getValue(imageMatrix, Matrix.MTRANS_X)
     private fun getValue(matrix: Matrix, whichValue: Int): Float {
         matrix.getValues(mMatrixValues)
         return mMatrixValues[ whichValue ]
+    }
+
+    data class Size(
+        val width: Float,
+        val height: Float
+    )
+
+    data class ContentInset(
+        val top: Float,
+        val left: Float,
+        val bottom: Float,
+        val right: Float
+    ) {
+        companion object {
+            val zero = ContentInset(0f, 0f, 0f, 0f)
+        }
     }
 
     enum class ScaleType {

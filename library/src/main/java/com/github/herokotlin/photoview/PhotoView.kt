@@ -188,7 +188,11 @@ class PhotoView : ImageView {
     var onOriginChange: (() -> Unit)? = null
 
     var calculateMaxScale: (Float) -> Float = {
-        if (3 * scale < 1) 1f else (3 * scale)
+        if (3 * it < 1) 1f else (3 * it)
+    }
+
+    var calculateMinScale: (Float) -> Float = {
+        it
     }
 
     private val mGestureDetector: GestureDetector by lazy {
@@ -830,8 +834,8 @@ class PhotoView : ImageView {
     }
 
     fun updateLimitScale() {
-        maxScale = calculateMaxScale(scale)
-        minScale = scale
+        minScale = calculateMinScale(scale)
+        maxScale = Math.max(calculateMaxScale(scale), minScale)
     }
 
     fun setFocusPoint(x: Float, y: Float) {

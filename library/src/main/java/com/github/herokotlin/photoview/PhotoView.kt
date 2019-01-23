@@ -102,7 +102,7 @@ class PhotoView : ImageView {
             // 开始更新
             field = value
 
-            updateBaseMatrix(true)
+            updateBaseMatrix()
 
             // 还原为原来的尺寸
             val newScale = scale
@@ -160,6 +160,16 @@ class PhotoView : ImageView {
 
         get() {
             return Size(mImageWidth * scale, mImageHeight * scale)
+        }
+
+        set(value) {
+            // 只读
+        }
+
+    var imageOriginalSize: Size
+
+        get() {
+            return Size(mImageWidth, mImageHeight)
         }
 
         set(value) {
@@ -402,7 +412,7 @@ class PhotoView : ImageView {
         mImageWidth = if (drawable != null) drawable.intrinsicWidth.toFloat() else 0f
         mImageHeight = if (drawable != null) drawable.intrinsicHeight.toFloat() else 0f
 
-        updateBaseMatrix(false)
+        reset()
 
     }
 
@@ -428,6 +438,15 @@ class PhotoView : ImageView {
             checkImageBounds { dx, dy ->
                 startTranslateAnimation(dx, dy, bounceInterpolator)
             }
+        }
+
+    }
+
+    fun reset() {
+
+        if (updateBaseMatrix()) {
+            imageMatrix = mDrawMatrix
+            onReset?.invoke()
         }
 
     }
@@ -688,7 +707,7 @@ class PhotoView : ImageView {
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        updateBaseMatrix(false)
+        reset()
     }
 
     /**
@@ -865,20 +884,17 @@ class PhotoView : ImageView {
 
     }
 
-    private fun updateBaseMatrix(silent: Boolean) {
-
+    private fun updateBaseMatrix(): Boolean {
         if (mImageWidth > 0 && mImageHeight > 0) {
 
             resetMatrix(mBaseMatrix, mChangeMatrix)
             updateDrawMatrix()
             updateLimitScale()
 
-            if (!silent) {
-                imageMatrix = mDrawMatrix
-                onReset?.invoke()
-            }
+            return true
 
         }
+        return false
     }
 
     private fun updateDrawMatrix() {

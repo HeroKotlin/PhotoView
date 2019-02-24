@@ -10,6 +10,7 @@ import android.view.MotionEvent
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.LinearInterpolator
 import android.widget.ImageView
+import java.io.FileInputStream
 
 class PhotoView : ImageView {
 
@@ -30,6 +31,8 @@ class PhotoView : ImageView {
         const val DIRECTION_VERTICAL = DIRECTION_TOP or DIRECTION_BOTTOM
 
         const val DIRECTION_ALL = DIRECTION_HORIZONTAL or DIRECTION_VERTICAL
+
+        private const val FILE_PREFIX = "file://"
 
     }
 
@@ -69,6 +72,22 @@ class PhotoView : ImageView {
 
     // 放大时的 focus point，方便再次双击缩小回去时，图片不会突然移动
     private var mFocusPoint = PointF()
+
+    // 图片文件的真实尺寸
+    private var mActualImageWidth = 0
+    private var mActualImageHeight = 0
+
+    private var mBitmapRegionUpdating = false
+
+    private var mBitmapRegionDecoder: BitmapRegionDecoder? = null
+
+    private val mBitmapRegionOptions: BitmapFactory.Options by lazy {
+        val options = BitmapFactory.Options()
+        options.inPreferredConfig = Bitmap.Config.ARGB_8888
+        options
+    }
+
+
     
     // 拖拽方向
     var draggableDirection = DIRECTION_ALL
@@ -112,8 +131,7 @@ class PhotoView : ImageView {
             val newOrigin = imageOrigin
             translate(oldOrigin.x - newOrigin.x, oldOrigin.y - newOrigin.y, false, true)
 
-            // 发射
-            imageMatrix = mDrawMatrix
+            applyDrawMatrix()
 
         }
 
@@ -152,7 +170,7 @@ class PhotoView : ImageView {
             mChangeMatrix.setTranslate(dx, dy)
 
             updateDrawMatrix()
-            imageMatrix = mDrawMatrix
+            applyDrawMatrix()
 
         }
 
@@ -282,7 +300,7 @@ class PhotoView : ImageView {
 
                 translate(focusPoint.x - lastFocusPoint.x, focusPoint.y - lastFocusPoint.y, true, true)
 
-                imageMatrix = mDrawMatrix
+                applyDrawMatrix()
 
             }
 
@@ -407,20 +425,39 @@ class PhotoView : ImageView {
 
     override fun setImageDrawable(drawable: Drawable?) {
         super.setImageDrawable(drawable)
-        updateImage()
+        if (!mBitmapRegionUpdating) {
+            updateImage()
+        }
     }
 
     override fun setImageURI(uri: Uri?) {
         super.setImageURI(uri)
         updateImage()
+        updateImageFile(uri.toString())
     }
 
     private fun updateImage() {
+
+        mBitmapRegionDecoder = null
 
         mImageWidth = if (drawable != null) drawable.intrinsicWidth.toFloat() else 0f
         mImageHeight = if (drawable != null) drawable.intrinsicHeight.toFloat() else 0f
 
         reset()
+
+    }
+
+    private fun updateImageFile(uri: String) {
+
+        val path = uri.substring(FILE_PREFIX.length)
+        mBitmapRegionDecoder = BitmapRegionDecoder.newInstance(path, false)
+
+        val options = BitmapFactory.Options()
+        options.inJustDecodeBounds = true
+
+        BitmapFactory.decodeStream(FileInputStream(path), null, options)
+        mActualImageWidth = options.outWidth
+        mActualImageHeight = options.outHeight
 
     }
 
@@ -453,7 +490,7 @@ class PhotoView : ImageView {
     fun reset() {
 
         if (updateBaseMatrix()) {
-            imageMatrix = mDrawMatrix
+            applyDrawMatrix()
             onReset?.invoke()
         }
 
@@ -681,7 +718,7 @@ class PhotoView : ImageView {
                 }
 
                 if (!silent) {
-                    imageMatrix = mDrawMatrix
+                    applyDrawMatrix()
                 }
 
                 onOriginChange?.invoke()
@@ -706,7 +743,7 @@ class PhotoView : ImageView {
         updateDrawMatrix()
 
         if (!silent) {
-            imageMatrix = mDrawMatrix
+            applyDrawMatrix()
         }
 
         onScaleChange?.invoke()
@@ -781,10 +818,9 @@ class PhotoView : ImageView {
 
     }
 
-    fun resetMatrix(baseMatrix: Matrix, changeMatrix: Matrix) {
+    private fun resetMatrix(matrix: Matrix, imageWidth: Float, imageHeight: Float) {
 
-        baseMatrix.reset()
-        changeMatrix.reset()
+        matrix.reset()
 
         val viewWidth = width
         val viewHeight = height
@@ -792,8 +828,8 @@ class PhotoView : ImageView {
         val contentWidth = mContentWidth
         val contentHeight = mContentHeight
 
-        val widthScale = contentWidth / mImageWidth
-        val heightScale = contentHeight / mImageHeight
+        val widthScale = contentWidth / imageWidth
+        val heightScale = contentHeight / imageHeight
 
         val zoomScale = when (scaleType) {
             ScaleType.FILL_WIDTH -> {
@@ -810,26 +846,34 @@ class PhotoView : ImageView {
             }
         }
 
-        baseMatrix.postScale(zoomScale, zoomScale)
+        matrix.postScale(zoomScale, zoomScale)
 
-        val imageWidth = mImageWidth * zoomScale
-        val imageHeight = mImageHeight * zoomScale
+        val width = imageWidth * zoomScale
+        val height = imageHeight * zoomScale
 
-        val deltaX = if (viewWidth > imageWidth) {
-            (viewWidth - imageWidth) / 2
+        val deltaX = if (viewWidth > width) {
+            (viewWidth - width) / 2
         }
         else {
             0f
         }
 
-        val deltaY = if (viewHeight > imageHeight) {
-            (viewHeight - imageHeight) / 2
+        val deltaY = if (viewHeight > height) {
+            (viewHeight - height) / 2
         }
         else {
             0f
         }
 
-        baseMatrix.postTranslate(deltaX, deltaY)
+        matrix.postTranslate(deltaX, deltaY)
+
+    }
+
+    fun resetMatrix(baseMatrix: Matrix, changeMatrix: Matrix) {
+
+        changeMatrix.reset()
+
+        resetMatrix(baseMatrix, mImageWidth, mImageHeight)
 
     }
 
@@ -908,6 +952,48 @@ class PhotoView : ImageView {
     private fun updateDrawMatrix() {
         mDrawMatrix.set(mBaseMatrix)
         mDrawMatrix.postConcat(mChangeMatrix)
+    }
+
+    private fun applyDrawMatrix() {
+
+        if (mBitmapRegionDecoder != null) {
+            mBitmapRegionDecoder?.let {
+
+                val origin = imageOrigin
+                val size = imageSize
+
+                val left = origin.x
+                val top = origin.y
+                val right = left + size.width
+                val bottom = top + size.height
+
+                val rect = Rect(
+                    (mActualImageWidth * (left - origin.x) / size.width).toInt(),
+                    (mActualImageHeight * (top - origin.y) / size.height).toInt(),
+                    (mActualImageWidth * (right - origin.x) / size.width).toInt(),
+                    (mActualImageHeight * (bottom - origin.y) / size.height).toInt()
+                )
+
+                mBitmapRegionUpdating = true
+                setImageBitmap(it.decodeRegion(rect, mBitmapRegionOptions))
+                mBitmapRegionUpdating = false
+
+                val matrix = Matrix(mDrawMatrix)
+
+                val scale = mImageWidth / (rect.right - rect.left)
+                matrix.postScale(scale, scale)
+
+                // 经过 postScale，原点也会缩放，因此要减回去
+                matrix.postTranslate(origin.x * (1 - scale), origin.y * (1 - scale))
+
+                imageMatrix = matrix
+
+            }
+        }
+        else {
+            imageMatrix = mDrawMatrix
+        }
+
     }
 
     // getValue(imageMatrix, Matrix.MTRANS_X)

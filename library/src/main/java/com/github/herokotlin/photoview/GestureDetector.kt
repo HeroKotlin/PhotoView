@@ -216,7 +216,6 @@ internal class GestureDetector(private val context: Context, private val listene
             }
         }
 
-
         return handled
 
     }

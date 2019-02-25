@@ -72,24 +72,6 @@ class PhotoView : ImageView {
 
     // 放大时的 focus point，方便再次双击缩小回去时，图片不会突然移动
     private var mFocusPoint = PointF()
-
-    // 图片文件的真实尺寸
-    private var mActualImageWidth = 0
-    private var mActualImageHeight = 0
-
-    private var mBitmapRegionUpdating = false
-
-    private var mBitmapRegionDecoder: BitmapRegionDecoder? = null
-
-    private val mBitmapRegionOptions: BitmapFactory.Options by lazy {
-        val options = BitmapFactory.Options()
-        options.inPreferredConfig = Bitmap.Config.ARGB_8888
-        options
-    }
-
-    private var mBitmapRegionRect: Rect? = null
-    private var mBitmapRegionData: Bitmap? = null
-
     
     // 拖拽方向
     var draggableDirection = DIRECTION_ALL
@@ -427,9 +409,7 @@ class PhotoView : ImageView {
 
     override fun setImageDrawable(drawable: Drawable?) {
         super.setImageDrawable(drawable)
-        if (!mBitmapRegionUpdating) {
-            updateImage()
-        }
+        updateImage()
     }
 
     override fun setImageURI(uri: Uri?) {
@@ -438,10 +418,6 @@ class PhotoView : ImageView {
     }
 
     private fun updateImage() {
-
-        mBitmapRegionDecoder = null
-        mBitmapRegionRect = null
-        mBitmapRegionData = null
 
         mImageWidth = if (drawable != null) drawable.intrinsicWidth.toFloat() else 0f
         mImageHeight = if (drawable != null) drawable.intrinsicHeight.toFloat() else 0f
@@ -460,7 +436,11 @@ class PhotoView : ImageView {
 
         BitmapFactory.decodeStream(FileInputStream(path), null, options)
 
-        val bitmap = decoder.decodeRegion(Rect(0, 0, options.outWidth, options.outHeight), mBitmapRegionOptions)
+        options.inJustDecodeBounds = false
+        options.inPreferredConfig = Bitmap.Config.ARGB_8888
+
+        // 这样搞一下居然就能成功加载大图了...
+        val bitmap = decoder.decodeRegion(Rect(0, 0, options.outWidth, options.outHeight), options)
         setImageBitmap(bitmap)
 
     }
@@ -959,105 +939,7 @@ class PhotoView : ImageView {
     }
 
     private fun applyDrawMatrix() {
-
-        if (mBitmapRegionDecoder != null) {
-//            mBitmapRegionDecoder?.let {
-//
-//                // 写这段逻辑写的我脑袋爆炸...
-//                val origin = imageOrigin
-//                val size = imageSize
-//
-//                val visibleWidth = size.width.toInt()
-//                val visibleHeight = size.height.toInt()
-//
-//                val left: Float
-//                val top: Float
-//                val right: Float
-//                val bottom: Float
-//
-//                // 先确定裁剪区域
-//                // 如果小于可视区域，则用可视区域
-//                // 因为裁剪区域这个技术，本来就是为了处理大图加载的
-//
-//                // 图片的显示宽度小于可视宽度
-//                if (visibleWidth <= mContentWidth) {
-//                    left = origin.x
-//                    right = left + visibleWidth
-//                }
-//                // 显示宽度大于可视宽度，不用显示可视区域外面的像素
-//                else {
-//                    left = Math.max(0f, origin.x)
-//                    right = Math.min(origin.x + visibleWidth, left + mContentWidth)
-//                }
-//
-//                // 图片的显示高度小于可视高度
-//                if (visibleHeight <= mContentHeight) {
-//                    top = origin.y
-//                    bottom = top + visibleHeight
-//                }
-//                else {
-//                    top = Math.max(0f, origin.y)
-//                    bottom = Math.min(origin.y + visibleHeight, top + mContentHeight)
-//                }
-//
-//                // 裁剪区域
-//                var newRect = Rect(
-//                    (mActualImageWidth * (left - origin.x) / visibleWidth).toInt(),
-//                    (mActualImageHeight * (top - origin.y) / visibleHeight).toInt(),
-//                    (mActualImageWidth * (right - origin.x) / visibleWidth).toInt(),
-//                    (mActualImageHeight * (bottom - origin.y) / visibleHeight).toInt()
-//                )
-//
-//                val oldRect = mBitmapRegionRect
-//
-//                val bitmap: Bitmap
-//
-//                // 如果仅仅是缩小区域，那直接用上一个
-//                // 因为如果上一个更大的都显示出来了（没有OOM），更小的没必要再裁剪了
-//                if (oldRect != null
-//                    && oldRect.left - newRect.left <= 0
-//                    && oldRect.top - newRect.top <= 0
-//                    && oldRect.right - newRect.right >= 0
-//                    && oldRect.bottom - newRect.bottom >= 0
-//                ) {
-//                    bitmap = mBitmapRegionData!!
-//                    newRect = oldRect
-//                }
-//                else {
-//                    bitmap = it.decodeRegion(newRect, mBitmapRegionOptions)
-//                }
-//
-//
-//                // 更新图片
-//                mBitmapRegionUpdating = true
-//                setImageBitmap(bitmap)
-//                mBitmapRegionUpdating = false
-//
-//
-//                // 调整矩阵，因为矩阵是按最初那个图来交互的
-//                val matrix = Matrix(mDrawMatrix)
-//
-//                // 缩放比较好调整，因为最初的图片宽度是 mImageWidth，这个不会变
-//                val scale = mImageWidth / (newRect.right - newRect.left)
-//                matrix.postScale(scale, scale)
-//
-//                // 经过 postScale，原点也会缩放，因此要减回去
-//                val x = origin.x * scale
-//                val y = origin.y * scale
-//
-//                matrix.postTranslate(origin.x - x, origin.y - y)
-//
-//                imageMatrix = matrix
-//
-//                mBitmapRegionRect = newRect
-//                mBitmapRegionData = bitmap
-//
-//            }
-        }
-        else {
-            imageMatrix = mDrawMatrix
-        }
-
+        imageMatrix = mDrawMatrix
     }
 
     // getValue(imageMatrix, Matrix.MTRANS_X)

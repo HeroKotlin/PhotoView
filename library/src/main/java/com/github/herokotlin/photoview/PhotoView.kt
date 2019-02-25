@@ -6,7 +6,6 @@ import android.graphics.*
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.util.AttributeSet
-import android.util.Log
 import android.view.MotionEvent
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.LinearInterpolator
@@ -435,7 +434,6 @@ class PhotoView : ImageView {
 
     override fun setImageURI(uri: Uri?) {
         super.setImageURI(uri)
-        updateImage()
         updateImageFile(uri.toString())
     }
 
@@ -455,14 +453,15 @@ class PhotoView : ImageView {
     private fun updateImageFile(uri: String) {
 
         val path = uri.substring(FILE_PREFIX.length)
-        mBitmapRegionDecoder = BitmapRegionDecoder.newInstance(path, false)
+        val decoder = BitmapRegionDecoder.newInstance(path, false)
 
         val options = BitmapFactory.Options()
         options.inJustDecodeBounds = true
 
         BitmapFactory.decodeStream(FileInputStream(path), null, options)
-        mActualImageWidth = options.outWidth
-        mActualImageHeight = options.outHeight
+
+        val bitmap = decoder.decodeRegion(Rect(0, 0, options.outWidth, options.outHeight), mBitmapRegionOptions)
+        setImageBitmap(bitmap)
 
     }
 
@@ -962,139 +961,98 @@ class PhotoView : ImageView {
     private fun applyDrawMatrix() {
 
         if (mBitmapRegionDecoder != null) {
-            mBitmapRegionDecoder?.let {
-
-                // 写这段逻辑写的我脑袋爆炸...
-                val origin = imageOrigin
-                val size = imageSize
-
-                val visibleWidth = size.width.toInt()
-                val visibleHeight = size.height.toInt()
-
-                val left: Float
-                val top: Float
-                val right: Float
-                val bottom: Float
-
-                // 先确定裁剪区域
-                // 如果小于可视区域，则用可视区域
-                // 因为裁剪区域这个技术，本来就是为了处理大图加载的
-
-                // 图片的显示宽度小于可视宽度
-                if (visibleWidth <= mContentWidth) {
-                    left = origin.x
-                    right = left + visibleWidth
-                }
-                // 显示宽度大于可视宽度，不用显示可视区域外面的像素
-                else {
-                    left = Math.max(0f, origin.x)
-                    right = Math.min(origin.x + visibleWidth, left + mContentWidth)
-                }
-
-                // 图片的显示高度小于可视高度
-                if (visibleHeight <= mContentHeight) {
-                    top = origin.y
-                    bottom = top + visibleHeight
-                }
-                else {
-                    top = Math.max(0f, origin.y)
-                    bottom = Math.min(origin.y + visibleHeight, top + mContentHeight)
-                }
-
-                // 裁剪区域
-                var newRect = Rect(
-                    (mActualImageWidth * (left - origin.x) / visibleWidth).toInt(),
-                    (mActualImageHeight * (top - origin.y) / visibleHeight).toInt(),
-                    (mActualImageWidth * (right - origin.x) / visibleWidth).toInt(),
-                    (mActualImageHeight * (bottom - origin.y) / visibleHeight).toInt()
-                )
-
-                val oldRect = mBitmapRegionRect
-
-                val bitmap: Bitmap
-
-                // 如果仅仅是缩小区域，那直接用上一个
-                // 因为如果上一个更大的都显示出来了（没有OOM），更小的没必要再裁剪了
-                if (oldRect != null
-                    && oldRect.left - newRect.left <= 0
-                    && oldRect.top - newRect.top <= 0
-                    && oldRect.right - newRect.right >= 0
-                    && oldRect.bottom - newRect.bottom >= 0
-                ) {
-                    bitmap = mBitmapRegionData!!
-                    newRect = oldRect
-                }
-                else {
-                    bitmap = it.decodeRegion(newRect, mBitmapRegionOptions)
-                }
-
-
-                // 更新图片
-                mBitmapRegionUpdating = true
-                setImageBitmap(bitmap)
-                mBitmapRegionUpdating = false
-
-
-                // 调整矩阵，因为矩阵是按最初那个图来交互的
-                val matrix = Matrix(mDrawMatrix)
-
-                // 缩放比较好调整，因为最初的图片宽度是 mImageWidth，这个不会变
-                val scale = mImageWidth / (newRect.right - newRect.left)
-                matrix.postScale(scale, scale)
-
-                // 经过 postScale，原点也会缩放，因此要减回去
-                val x = origin.x * scale
-                val y = origin.y * scale
-
-                var dx = origin.x - x
-                var dy = origin.y - y
-
-                // 图片滑到最右侧的 right 值
-                val maxRight = width - contentInset.right
-                val maxWidth = maxRight - origin.x
-
-                // 右边还有待裁剪的内容
-                if (newRect.right < mActualImageWidth) {
-                    if (x < 0) {
-                        dx = -x
-                    }
-                }
-                else {
-                    if (x < 0 && maxWidth >= visibleWidth) {
-//                        dx = -x
-//                        dx -= maxWidth - visibleWidth
-                    }
-                }
-
-                // 图片滑到最底部的 bottom 值
-                val maxBottom = height - contentInset.bottom
-                val maxHeight = maxBottom - origin.y
-
-                // 底部还有待裁剪的内容
-                if (newRect.bottom < mActualImageHeight) {
-                    if (y < 0) {
-                        dy = -y
-                    }
-                }
-                else {
-                    if (y < 0 && maxHeight >= visibleHeight) {
-//                        dy = -y
-//                        dy -= maxHeight - visibleHeight
-                    }
-                }
-
-                matrix.postTranslate(dx, dy)
-
-                imageMatrix = matrix
-
-                mBitmapRegionRect = newRect
-                mBitmapRegionData = bitmap
-
-                Log.d("photoview", "${newRect.left},${newRect.top}  ${newRect.right},${newRect.bottom} ---  ${mActualImageWidth},${mActualImageHeight}  ---- $scale  $dx,$dy")
-                Log.d("photoview", "==> $x   $maxWidth   $visibleWidth")
-                Log.d("photoview", "==> $y   $maxHeight   $visibleHeight")
-
-            }
+//            mBitmapRegionDecoder?.let {
+//
+//                // 写这段逻辑写的我脑袋爆炸...
+//                val origin = imageOrigin
+//                val size = imageSize
+//
+//                val visibleWidth = size.width.toInt()
+//                val visibleHeight = size.height.toInt()
+//
+//                val left: Float
+//                val top: Float
+//                val right: Float
+//                val bottom: Float
+//
+//                // 先确定裁剪区域
+//                // 如果小于可视区域，则用可视区域
+//                // 因为裁剪区域这个技术，本来就是为了处理大图加载的
+//
+//                // 图片的显示宽度小于可视宽度
+//                if (visibleWidth <= mContentWidth) {
+//                    left = origin.x
+//                    right = left + visibleWidth
+//                }
+//                // 显示宽度大于可视宽度，不用显示可视区域外面的像素
+//                else {
+//                    left = Math.max(0f, origin.x)
+//                    right = Math.min(origin.x + visibleWidth, left + mContentWidth)
+//                }
+//
+//                // 图片的显示高度小于可视高度
+//                if (visibleHeight <= mContentHeight) {
+//                    top = origin.y
+//                    bottom = top + visibleHeight
+//                }
+//                else {
+//                    top = Math.max(0f, origin.y)
+//                    bottom = Math.min(origin.y + visibleHeight, top + mContentHeight)
+//                }
+//
+//                // 裁剪区域
+//                var newRect = Rect(
+//                    (mActualImageWidth * (left - origin.x) / visibleWidth).toInt(),
+//                    (mActualImageHeight * (top - origin.y) / visibleHeight).toInt(),
+//                    (mActualImageWidth * (right - origin.x) / visibleWidth).toInt(),
+//                    (mActualImageHeight * (bottom - origin.y) / visibleHeight).toInt()
+//                )
+//
+//                val oldRect = mBitmapRegionRect
+//
+//                val bitmap: Bitmap
+//
+//                // 如果仅仅是缩小区域，那直接用上一个
+//                // 因为如果上一个更大的都显示出来了（没有OOM），更小的没必要再裁剪了
+//                if (oldRect != null
+//                    && oldRect.left - newRect.left <= 0
+//                    && oldRect.top - newRect.top <= 0
+//                    && oldRect.right - newRect.right >= 0
+//                    && oldRect.bottom - newRect.bottom >= 0
+//                ) {
+//                    bitmap = mBitmapRegionData!!
+//                    newRect = oldRect
+//                }
+//                else {
+//                    bitmap = it.decodeRegion(newRect, mBitmapRegionOptions)
+//                }
+//
+//
+//                // 更新图片
+//                mBitmapRegionUpdating = true
+//                setImageBitmap(bitmap)
+//                mBitmapRegionUpdating = false
+//
+//
+//                // 调整矩阵，因为矩阵是按最初那个图来交互的
+//                val matrix = Matrix(mDrawMatrix)
+//
+//                // 缩放比较好调整，因为最初的图片宽度是 mImageWidth，这个不会变
+//                val scale = mImageWidth / (newRect.right - newRect.left)
+//                matrix.postScale(scale, scale)
+//
+//                // 经过 postScale，原点也会缩放，因此要减回去
+//                val x = origin.x * scale
+//                val y = origin.y * scale
+//
+//                matrix.postTranslate(origin.x - x, origin.y - y)
+//
+//                imageMatrix = matrix
+//
+//                mBitmapRegionRect = newRect
+//                mBitmapRegionData = bitmap
+//
+//            }
         }
         else {
             imageMatrix = mDrawMatrix

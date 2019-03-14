@@ -36,16 +36,30 @@ class PhotoView : ImageView {
 
     }
 
-    private var mContentWidth = 0f
+    /**
+     * 内容区域的宽度，不包含内边距
+     */
+    private var mContentWidth: Float
 
         get() {
             return width - contentInset.left - contentInset.right
         }
 
-    private var mContentHeight = 0f
+        set(_) {
+
+        }
+
+    /**
+     * 内容区域的高度，不包含内边距
+     */
+    private var mContentHeight: Float
 
         get() {
             return height - contentInset.top - contentInset.bottom
+        }
+
+        set(_) {
+
         }
 
     private var mImageWidth = 0f
@@ -66,6 +80,9 @@ class PhotoView : ImageView {
     
     // 当前的位移动画实例
     private var mTranslateAnimator: android.animation.Animator? = null
+
+    // 当前的旋转动画实例
+    private var mRotateAnimator: android.animation.Animator? = null
 
     // 当前的缩放动画实例
     private var mZoomAnimator: android.animation.Animator? = null
@@ -132,8 +149,14 @@ class PhotoView : ImageView {
             return getValue(mDrawMatrix, Matrix.MSCALE_X)
         }
 
-        set(value) {
+        private set(_) {
 
+        }
+
+    var angle: Float = 0f
+
+        private set(value) {
+            field = value
         }
 
     var imageOrigin: PointF
@@ -164,7 +187,7 @@ class PhotoView : ImageView {
             return Size(mImageWidth * scale, mImageHeight * scale)
         }
 
-        set(value) {
+        private set(_) {
             // 只读
         }
 
@@ -174,19 +197,20 @@ class PhotoView : ImageView {
             return Size(mImageWidth, mImageHeight)
         }
 
-        set(value) {
+        private set(_) {
             // 只读
         }
 
     var onReset: (() -> Unit)? = null
 
-    var onTap: (() -> Unit)? = null
+    var onTap: ((Float, Float) -> Unit)? = null
     var onLongPress: (() -> Unit)? = null
 
     var onDragStart: (() -> Unit)? = null
     var onDragEnd: (() -> Unit)? = null
 
     var onScaleChange: (() -> Unit)? = null
+    var onRotationChange: (() -> Unit)? = null
     var onOriginChange: (() -> Unit)? = null
 
     var calculateMaxScale: (Float) -> Float = {
@@ -355,7 +379,7 @@ class PhotoView : ImageView {
                 if (mZoomAnimator != null) {
                     return
                 }
-                onTap?.invoke()
+                onTap?.invoke(x, y)
             }
 
             override fun onDoubleTap(x: Float, y: Float) {
@@ -625,6 +649,37 @@ class PhotoView : ImageView {
 
     }
 
+    fun startRotateAnimation(degrees: Float, duration: Long, interpolator: TimeInterpolator) {
+
+        if (mRotateAnimator != null) {
+            return
+        }
+
+        val animator = ValueAnimator.ofFloat(0f, degrees)
+
+        var lastValue = 0f
+
+        animator.duration = duration
+        animator.interpolator = interpolator
+        animator.addUpdateListener {
+            val value = it.animatedValue as Float
+            rotate(value - lastValue)
+            lastValue = value
+        }
+        animator.addListener(object: AnimatorListenerAdapter() {
+            // 动画被取消，onAnimationEnd() 也会被调用
+            override fun onAnimationEnd(animation: android.animation.Animator?) {
+                if (animation == mRotateAnimator) {
+                    mRotateAnimator = null
+                }
+            }
+        })
+        animator.start()
+
+        mRotateAnimator = animator
+
+    }
+
     /**
      * 平移，如果超出允许平移的边界或没移动，返回 false
      */
@@ -714,16 +769,17 @@ class PhotoView : ImageView {
 
     }
 
+    /**
+     * 缩放
+     */
     fun zoom(factor: Float, silent: Boolean = false) {
 
         if (factor == 1f) {
             return
         }
 
-        // 缩放
         mChangeMatrix.postScale(factor, factor, mFocusPoint.x, mFocusPoint.y)
 
-        // 更新最后起作用的矩阵
         updateDrawMatrix()
 
         if (!silent) {
@@ -732,6 +788,32 @@ class PhotoView : ImageView {
 
         onScaleChange?.invoke()
         onOriginChange?.invoke()
+
+    }
+
+    /**
+     * 旋转图片
+     *
+     * @param {Float} degrees 旋转角度，注意：不是弧度
+     */
+    fun rotate(degrees: Float, silent: Boolean = false) {
+
+        if (degrees == 0f) {
+            return
+        }
+
+        mChangeMatrix.postRotate(degrees, mFocusPoint.x, mFocusPoint.y)
+
+        updateDrawMatrix()
+
+        // 因为通过矩阵获取当前旋转角度很费劲，所以这里简单的记录一下
+        angle += degrees
+
+        if (!silent) {
+            applyDrawMatrix()
+        }
+
+        onRotationChange?.invoke()
 
     }
 
@@ -869,10 +951,10 @@ class PhotoView : ImageView {
     fun setFocusPoint(x: Float, y: Float) {
 
         // 经过测试，图片四角的 focusPoint 如下：
-        val minX = contentInset.left
-        val minY = contentInset.top
-        val maxX = width - contentInset.right
-        val maxY = height - contentInset.bottom
+        val left = contentInset.left
+        val top = contentInset.top
+        val right = width - contentInset.right
+        val bottom = height - contentInset.bottom
 
         // 当用户在 photo view 上点击时
         // 坐标落在 (0, 0) 到 (width, height) 范围内
@@ -881,38 +963,39 @@ class PhotoView : ImageView {
         val origin = imageOrigin
         val size = imageSize
 
-        val scaleX = (x - origin.x) / size.width
-        val scaleY = (y - origin.y) / size.height
+        // (x, y) 在图片内的相对位置
+        val relativeX = (x - origin.x) / size.width
+        val relativeY = (y - origin.y) / size.height
 
         // 最后的换算
-        var focusX = Math.min(Math.max(scaleX * maxX, minX), maxX)
-        var focusY = Math.min(Math.max(scaleY * maxY, minY), maxY)
+        var focusX = Math.min(Math.max(relativeX * right, left), right)
+        var focusY = Math.min(Math.max(relativeY * bottom, top), bottom)
 
         // 如果距离四角很近，可优化体验
         val threshold = 80f
 
-        if (focusX - minX < threshold) {
+        if (focusX - left < threshold) {
             // 左上
-            if (focusY - minY < threshold) {
-                focusX = minX
-                focusY = minY
+            if (focusY - top < threshold) {
+                focusX = left
+                focusY = top
             }
             // 左下
-            else if (maxY - focusY < threshold) {
-                focusX = minX
-                focusY = maxY
+            else if (bottom - focusY < threshold) {
+                focusX = left
+                focusY = bottom
             }
         }
-        else if (maxX - focusX < threshold) {
+        else if (right - focusX < threshold) {
             // 右上
-            if (focusY - minY < threshold) {
-                focusX = maxX
-                focusY = minY
+            if (focusY - top < threshold) {
+                focusX = right
+                focusY = top
             }
             // 右下
-            else if (maxY - focusY < threshold) {
-                focusX = maxX
-                focusY = maxY
+            else if (bottom - focusY < threshold) {
+                focusX = right
+                focusY = bottom
             }
         }
 

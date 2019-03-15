@@ -3,6 +3,7 @@ package com.github.herokotlin.photoview
 import android.animation.*
 import android.content.Context
 import android.graphics.*
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.util.AttributeSet
@@ -81,9 +82,6 @@ class PhotoView : ImageView {
     // 当前的位移动画实例
     private var mTranslateAnimator: android.animation.Animator? = null
 
-    // 当前的旋转动画实例
-    private var mRotateAnimator: android.animation.Animator? = null
-
     // 当前的缩放动画实例
     private var mZoomAnimator: android.animation.Animator? = null
 
@@ -114,28 +112,6 @@ class PhotoView : ImageView {
 
     var contentInset = ContentInset.zero
 
-        set(value) {
-
-            val oldScale = scale
-            val oldOrigin = imageOrigin
-
-            // 开始更新
-            field = value
-
-            updateBaseMatrix()
-
-            // 还原为原来的尺寸
-            val newScale = scale
-            zoom(oldScale / newScale, true)
-
-            // 还原成原来的位置
-            val newOrigin = imageOrigin
-            translate(oldOrigin.x - newOrigin.x, oldOrigin.y - newOrigin.y, false, true)
-
-            applyDrawMatrix()
-
-        }
-
     var scaleType = ScaleType.FILL_WIDTH
 
     // 以下三个外部只读
@@ -153,12 +129,6 @@ class PhotoView : ImageView {
 
         }
 
-    var angle: Float = 0f
-
-        private set(value) {
-            field = value
-        }
-
     var imageOrigin: PointF
 
         get() {
@@ -167,17 +137,7 @@ class PhotoView : ImageView {
             return PointF(x, y)
         }
 
-        set(value) {
-
-            val oldOrigin = imageOrigin
-
-            val dx = value.x - oldOrigin.x
-            val dy = value.y - oldOrigin.y
-
-            mChangeMatrix.setTranslate(dx, dy)
-
-            updateDrawMatrix()
-            applyDrawMatrix()
+        private set(_) {
 
         }
 
@@ -185,16 +145,6 @@ class PhotoView : ImageView {
 
         get() {
             return Size(mImageWidth * scale, mImageHeight * scale)
-        }
-
-        private set(_) {
-            // 只读
-        }
-
-    var imageOriginalSize: Size
-
-        get() {
-            return Size(mImageWidth, mImageHeight)
         }
 
         private set(_) {
@@ -210,7 +160,6 @@ class PhotoView : ImageView {
     var onDragEnd: (() -> Unit)? = null
 
     var onScaleChange: (() -> Unit)? = null
-    var onRotationChange: (() -> Unit)? = null
     var onOriginChange: (() -> Unit)? = null
 
     var calculateMaxScale: (Float) -> Float = {
@@ -522,6 +471,28 @@ class PhotoView : ImageView {
 
     }
 
+    fun keep(update: () -> Unit) {
+
+        val oldScale = scale
+        val oldOrigin = imageOrigin
+
+        // 开始更新
+        update()
+
+        updateBaseMatrix()
+
+        // 还原为原来的尺寸
+        val newScale = scale
+        zoom(oldScale / newScale, true)
+
+        // 还原成原来的位置
+        val newOrigin = imageOrigin
+        translate(oldOrigin.x - newOrigin.x, oldOrigin.y - newOrigin.y, false, true)
+
+        applyDrawMatrix()
+
+    }
+
     fun startZoomAnimation(from: Float, to: Float) {
 
         startZoomAnimation(from, to, zoomDuration, zoomInterpolator)
@@ -557,15 +528,18 @@ class PhotoView : ImageView {
         var deltaY = 0f
 
         // 计算缩放后的位移
-        temp({ _, changeMatrix ->
-            val scale = to / from
-            changeMatrix.postScale(scale, scale, mFocusPoint.x, mFocusPoint.y)
-        }) {
-            checkImageBounds { dx, dy ->
-                deltaX = dx
-                deltaY = dy
+        temp(
+            { _, changeMatrix ->
+                val scale = to / from
+                changeMatrix.postScale(scale, scale, mFocusPoint.x, mFocusPoint.y)
+            },
+            {
+                checkImageBounds { dx, dy ->
+                    deltaX = dx
+                    deltaY = dy
+                }
             }
-        }
+        )
 
         if (deltaX != 0f || deltaY != 0f) {
             startTranslateAnimation(deltaX, deltaY, interpolator)
@@ -583,7 +557,6 @@ class PhotoView : ImageView {
 
         val animatorX = ValueAnimator.ofFloat(vx, 0f)
         val animatorY = ValueAnimator.ofFloat(vy, 0f)
-        val animatorSet = AnimatorSet()
 
         animatorX.addUpdateListener {
             translate(it.animatedValue as Float, 0f, true)
@@ -592,6 +565,7 @@ class PhotoView : ImageView {
             translate(0f, it.animatedValue as Float, true)
         }
 
+        val animatorSet = AnimatorSet()
         animatorSet.interpolator = interpolator
         animatorSet.playTogether(animatorX, animatorY)
         animatorSet.start()
@@ -633,8 +607,8 @@ class PhotoView : ImageView {
         }
 
         val animatorSet = AnimatorSet()
-        animatorSet.playTogether(animatorX, animatorY)
         animatorSet.interpolator = interpolator
+        animatorSet.playTogether(animatorX, animatorY)
         animatorSet.start()
 
         animatorSet.addListener(object: AnimatorListenerAdapter() {
@@ -646,37 +620,6 @@ class PhotoView : ImageView {
         })
 
         mTranslateAnimator = animatorSet
-
-    }
-
-    fun startRotateAnimation(degrees: Float, duration: Long, interpolator: TimeInterpolator) {
-
-        if (mRotateAnimator != null) {
-            return
-        }
-
-        val animator = ValueAnimator.ofFloat(0f, degrees)
-
-        var lastValue = 0f
-
-        animator.duration = duration
-        animator.interpolator = interpolator
-        animator.addUpdateListener {
-            val value = it.animatedValue as Float
-            rotate(value - lastValue)
-            lastValue = value
-        }
-        animator.addListener(object: AnimatorListenerAdapter() {
-            // 动画被取消，onAnimationEnd() 也会被调用
-            override fun onAnimationEnd(animation: android.animation.Animator?) {
-                if (animation == mRotateAnimator) {
-                    mRotateAnimator = null
-                }
-            }
-        })
-        animator.start()
-
-        mRotateAnimator = animator
 
     }
 
@@ -792,28 +735,32 @@ class PhotoView : ImageView {
     }
 
     /**
-     * 旋转图片
+     * 旋转图片，这个不是改变矩阵，而是重置了 bitmap
      *
      * @param {Float} degrees 旋转角度，注意：不是弧度
      */
-    fun rotate(degrees: Float, silent: Boolean = false) {
+    fun rotateBitmap(degrees: Float) {
 
         if (degrees == 0f) {
             return
         }
 
-        mChangeMatrix.postRotate(degrees, mFocusPoint.x, mFocusPoint.y)
-
-        updateDrawMatrix()
-
-        // 因为通过矩阵获取当前旋转角度很费劲，所以这里简单的记录一下
-        angle += degrees
-
-        if (!silent) {
-            applyDrawMatrix()
+        val bitmapDrawable = drawable
+        if (bitmapDrawable !is BitmapDrawable) {
+            return
         }
 
-        onRotationChange?.invoke()
+        val bitmap = bitmapDrawable.bitmap
+
+        val matrix = Matrix()
+        matrix.setRotate(degrees)
+
+        val newBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, false)
+        if (newBitmap != bitmap) {
+            bitmap.recycle()
+        }
+
+        setImageBitmap(newBitmap)
 
     }
 
@@ -950,11 +897,14 @@ class PhotoView : ImageView {
 
     fun setFocusPoint(x: Float, y: Float) {
 
+        val viewWidth = width
+        val viewHeight = height
+
         // 经过测试，图片四角的 focusPoint 如下：
         val left = contentInset.left
         val top = contentInset.top
-        val right = width - contentInset.right
-        val bottom = height - contentInset.bottom
+        val right = viewWidth - contentInset.right
+        val bottom = viewHeight - contentInset.bottom
 
         // 当用户在 photo view 上点击时
         // 坐标落在 (0, 0) 到 (width, height) 范围内

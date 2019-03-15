@@ -3,7 +3,6 @@ package com.github.herokotlin.photoview
 import android.animation.*
 import android.content.Context
 import android.graphics.*
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.util.AttributeSet

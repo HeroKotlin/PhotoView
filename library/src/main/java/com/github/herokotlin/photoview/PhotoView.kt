@@ -734,36 +734,6 @@ class PhotoView : ImageView {
 
     }
 
-    /**
-     * 旋转图片，这个不是改变矩阵，而是重置了 bitmap
-     *
-     * @param {Float} degrees 旋转角度，注意：不是弧度
-     */
-    fun rotateBitmap(degrees: Float) {
-
-        if (degrees == 0f) {
-            return
-        }
-
-        val bitmapDrawable = drawable
-        if (bitmapDrawable !is BitmapDrawable) {
-            return
-        }
-
-        val bitmap = bitmapDrawable.bitmap
-
-        val matrix = Matrix()
-        matrix.setRotate(degrees)
-
-        val newBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, false)
-        if (newBitmap != bitmap) {
-            bitmap.recycle()
-        }
-
-        setImageBitmap(newBitmap)
-
-    }
-
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         reset()
     }

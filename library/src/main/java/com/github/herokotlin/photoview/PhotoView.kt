@@ -152,7 +152,7 @@ class PhotoView : ImageView {
 
     var onReset: (() -> Unit)? = null
 
-    var onTap: ((Float, Float) -> Unit)? = null
+    var onTap: (() -> Unit)? = null
     var onLongPress: (() -> Unit)? = null
 
     var onDragStart: (() -> Unit)? = null
@@ -327,7 +327,7 @@ class PhotoView : ImageView {
                 if (mZoomAnimator != null) {
                     return
                 }
-                onTap?.invoke(x, y)
+                onTap?.invoke()
             }
 
             override fun onDoubleTap(x: Float, y: Float) {

@@ -172,23 +172,26 @@ internal class GestureDetector(private val context: Context, private val listene
             MotionEvent.ACTION_CANCEL -> {
                 setSecondaryPointer(event, INVALID_POINTER_INDEX)
                 setPrimaryPointer(event, INVALID_POINTER_INDEX)
-                if (mVelocityTracker != null) {
-                    mVelocityTracker?.recycle()
+                mVelocityTracker?.let {
+                    it.clear()
+                    it.recycle()
                     mVelocityTracker = null
                 }
             }
 
             MotionEvent.ACTION_UP -> {
                 var isFling = false
-                if (mVelocityTracker != null) {
-
+                mVelocityTracker?.let {
                     if (mIsDragging) {
 
-                        mVelocityTracker?.addMovement(event)
-                        mVelocityTracker?.computeCurrentVelocity(1000 / 60)
+                        it.addMovement(event)
 
-                        val vx = mVelocityTracker!!.xVelocity
-                        val vy = mVelocityTracker!!.yVelocity
+                        // 先计算速度
+                        // 速度指的是一段时间内手指所滑过的像素，时间单位是毫秒
+                        it.computeCurrentVelocity(1000 / 60)
+
+                        val vx = it.xVelocity
+                        val vy = it.yVelocity
 
                         if (Math.max(Math.abs(vx), Math.abs(vy)) >= mMinimumVelocity) {
                             isFling = listener.onFling(vx, vy)
@@ -196,10 +199,9 @@ internal class GestureDetector(private val context: Context, private val listene
 
                     }
 
-                    mVelocityTracker?.clear()
-                    mVelocityTracker?.recycle()
+                    it.clear()
+                    it.recycle()
                     mVelocityTracker = null
-
                 }
                 setPrimaryPointer(event, INVALID_POINTER_INDEX, isFling)
             }

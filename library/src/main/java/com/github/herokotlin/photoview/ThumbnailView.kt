@@ -133,7 +133,7 @@ open class ThumbnailView: ImageView {
 
     override fun onDraw(canvas: Canvas) {
 
-        if (borderRadiusPixel == 0f) {
+        if (borderRadiusPixel == 0f || drawableWidth == 0 || drawableHeight == 0) {
             super.onDraw(canvas)
             return
         }

@@ -516,7 +516,7 @@ class PhotoView : ImageView {
 
         animator.addListener(object: AnimatorListenerAdapter() {
             // 动画被取消，onAnimationEnd() 也会被调用
-            override fun onAnimationEnd(animation: android.animation.Animator?) {
+            override fun onAnimationEnd(animation: android.animation.Animator) {
                 if (animation == mZoomAnimator) {
                     mZoomAnimator = null
                 }
@@ -570,7 +570,7 @@ class PhotoView : ImageView {
         animatorSet.start()
 
         animatorSet.addListener(object: AnimatorListenerAdapter() {
-            override fun onAnimationEnd(animation: android.animation.Animator?) {
+            override fun onAnimationEnd(animation: android.animation.Animator) {
                 if (animation == mTranslateAnimator) {
                     mTranslateAnimator = null
                     checkImageBounds { dx, dy ->
@@ -611,7 +611,7 @@ class PhotoView : ImageView {
         animatorSet.start()
 
         animatorSet.addListener(object: AnimatorListenerAdapter() {
-            override fun onAnimationEnd(animation: android.animation.Animator?) {
+            override fun onAnimationEnd(animation: android.animation.Animator) {
                 if (animation == mTranslateAnimator) {
                     mTranslateAnimator = null
                 }

@@ -41,26 +41,18 @@ internal class GestureDetector(private val context: Context, private val listene
 
     private val mGestureDetector: NativeGestureDetector by lazy {
         NativeGestureDetector(context, object: NativeGestureDetector.SimpleOnGestureListener() {
-            override fun onDoubleTap(event: MotionEvent?): Boolean {
-                if (event != null) {
-                    listener.onDoubleTap(event.x, event.y)
-                    return true
-                }
-                return false
+            override fun onDoubleTap(event: MotionEvent): Boolean {
+                listener.onDoubleTap(event.x, event.y)
+                return true
             }
 
-            override fun onSingleTapConfirmed(event: MotionEvent?): Boolean {
-                if (event != null) {
-                    listener.onTap(event.x, event.y)
-                    return true
-                }
-                return false
+            override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
+                listener.onTap(event.x, event.y)
+                return true
             }
 
-            override fun onLongPress(event: MotionEvent?) {
-                if (event != null) {
-                    listener.onLongPress(event.x, event.y)
-                }
+            override fun onLongPress(event: MotionEvent) {
+                listener.onLongPress(event.x, event.y)
             }
 
         })

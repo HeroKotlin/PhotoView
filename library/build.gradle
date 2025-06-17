@@ -11,9 +11,6 @@ android {
     compileSdkVersion safeExtGet('compileSdkVersion', 35)
     buildToolsVersion safeExtGet('buildToolsVersion', '35.0.0')
 
-    buildFeatures {
-        viewBinding true
-    }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_21 // 统一为 Java 21
         targetCompatibility JavaVersion.VERSION_21
